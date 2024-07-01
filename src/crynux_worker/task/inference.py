@@ -78,13 +78,13 @@ def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTCon
 
         while not stop:
             if pipe.poll():
-                task_input: TaskInput = pipe.recv()
-                if task_input.task_type == TaskType.SD:
-                    args = InferenceTaskArgs.model_validate_json(task_input.task_args)
-                else:
-                    args = GPTTaskArgs.model_validate_json(task_input.task_args)
-
                 try:
+                    task_input: TaskInput = pipe.recv()
+                    if task_input.task_type == TaskType.SD:
+                        args = InferenceTaskArgs.model_validate_json(task_input.task_args)
+                    else:
+                        args = GPTTaskArgs.model_validate_json(task_input.task_args)
+
                     data = _inference_one_task(
                         task_input.task_type, args, model_cache, sd_config, gpt_config
                     )
