@@ -43,6 +43,8 @@ def worker(
     signal.signal(signal.SIGTERM, _signal_handle)
 
     with websockets.sync.client.connect(config.node_url) as websocket:
+        version_msg = {"version": version}
+        websocket.send(json.dumps(version_msg))
         raw_init_msg = websocket.recv()
         assert isinstance(raw_init_msg, str)
         init_msg = json.loads(raw_init_msg)
