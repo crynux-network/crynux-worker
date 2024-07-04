@@ -163,6 +163,5 @@ cython_debug/
 
 data
 logs
-patches
 version.txt
 config.yml
