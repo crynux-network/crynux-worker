@@ -1,19 +1,37 @@
 import logging
 import multiprocessing as mp
+import os
 import pathlib
 import platform
 import signal
-import time
-import os
 import sys
-from typing import List
+import time
+from multiprocessing.connection import Connection
+from multiprocessing.context import SpawnContext
 
 import requests
 import whatthepatch
 
 _logger = logging.getLogger(__name__)
 
-version = "0.0.1"
+
+def _version(pipe: Connection):
+    from crynux_worker import version
+
+    _version = version()
+    pipe.send(_version)
+
+
+def get_version(ctx: SpawnContext):
+    parent_pipe, child_pipe = ctx.Pipe()
+    p = ctx.Process(target=_version, args=(child_pipe,))
+    p.start()
+    p.join()
+    v = parent_pipe.recv()
+    child_pipe.close()
+    parent_pipe.close()
+    p.close()
+    return v
 
 
 def apply_patch(patch_content: str):
@@ -44,10 +62,11 @@ def apply_patch(patch_content: str):
 
 
 def _worker():
+    from tenacity import Retrying, before_sleep_log, stop_never, wait_fixed
+
     from crynux_worker import log
     from crynux_worker.config import get_config
     from crynux_worker.worker import worker
-    from tenacity import Retrying, before_sleep_log, stop_never, wait_fixed
 
     try:
         config = get_config()
@@ -68,24 +87,32 @@ def _worker():
     except KeyboardInterrupt:
         pass
 
+
 def _get_patch_contents(patch_url: str, current_version: str, platform_name: str):
     try:
         patch_contents = []
-        resp = requests.get(patch_url + "/patches", params={"version": current_version, "platform": platform_name})
+        resp = requests.get(f"{patch_url}/patches.txt")
         resp.raise_for_status()
 
-        data = resp.json()
-        versions = data["versions"]
-        if len(versions) > 0:
-            urls = [f"{patch_url}/patch/{platform_name}/{v}" for v in versions]
-            for url in urls:
-                sub_resp = requests.get(url)
-                sub_resp.raise_for_status()
+        versions = resp.text.strip().split()
 
-                patch_contents.append(sub_resp.text)
+        if len(versions) > 0:
+            try:
+                index = versions.index(current_version)
+                versions = versions[index + 1 :]
+            except ValueError:
+                pass
+
+        for version in versions:
+            sub_resp = requests.get(
+                f"{patch_url}/patches/{platform_name}/{version}.patch"
+            )
+            sub_resp.raise_for_status()
+
+            patch_contents.append(sub_resp.text)
 
         return versions, patch_contents
-    except requests.HTTPError as e:
+    except requests.RequestException as e:
         _logger.exception(e)
         _logger.error("get patch contents error")
         return [], []
@@ -120,20 +147,14 @@ class DelayedKeyboardInterrupt:
 if __name__ == "__main__":
     mp.freeze_support()
 
-    patch_url = os.environ.get("CRYNUX_WORKER_PATCH_URL", "http://127.0.0.1:8000")
-    version_file = os.environ.get("CRYNUX_WORKER_VERSION_FILE", "version.txt")
+    patch_url = os.environ.get(
+        "CRYNUX_WORKER_PATCH_URL",
+        "https://raw.githubusercontent.com/crynux-ai/crynux-worker/main",
+    )
 
     platform_name = _get_platform()
 
-    version_path = pathlib.Path(version_file)
-    if version_path.exists():
-        version = version_path.read_text().strip()
-    else:
-        version_path.write_text(version)
-
     ctx = mp.get_context("spawn")
-    worker_process = ctx.Process(target=_worker)
-    worker_process.start()
 
     def _is_worker_process_alive():
         try:
@@ -142,17 +163,31 @@ if __name__ == "__main__":
             return False
 
     try:
+        version = get_version(ctx)
+        remote_versions, patch_contents = _get_patch_contents(
+            patch_url, version, platform_name
+        )
+        if len(remote_versions) > 0:
+            for remote_version, patch_content in zip(
+                remote_versions, patch_contents
+            ):
+                with DelayedKeyboardInterrupt():
+                    apply_patch(patch_content)
+
+        worker_process = ctx.Process(target=_worker)
+        worker_process.start()
+
         while True:
-            remote_versions, patch_contents = _get_patch_contents(patch_url, version, platform_name)
+            version = get_version(ctx)
+            remote_versions, patch_contents = _get_patch_contents(
+                patch_url, version, platform_name
+            )
             if len(remote_versions) > 0:
                 for remote_version, patch_content in zip(
                     remote_versions, patch_contents
                 ):
                     with DelayedKeyboardInterrupt():
                         apply_patch(patch_content)
-                        with version_path.open(mode="w", encoding="utf-8") as f:
-                            f.write(str(remote_version))
-                        version = remote_version
 
                 worker_process.terminate()
                 worker_process.join()
@@ -160,7 +195,7 @@ if __name__ == "__main__":
                 worker_process = ctx.Process(target=_worker)
                 worker_process.start()
 
-            time.sleep(5)
+            time.sleep(60)
     except KeyboardInterrupt:
         if _is_worker_process_alive():
             worker_process.kill()

@@ -6,10 +6,10 @@ import websockets.sync.client
 
 from crynux_worker.config import Config, get_config, generate_sd_config, generate_gpt_config
 from crynux_worker.task import PrefetchTask, InferenceTask
+from crynux_worker import version
 
 _logger = logging.getLogger(__name__)
 
-version = "0.0.1"
 
 def worker(
     config: Config | None = None
@@ -17,7 +17,9 @@ def worker(
     if config is None:
         config = get_config()
 
-    _logger.info(f"Crynux worker version: {version}")
+    _version = version()
+
+    _logger.info(f"Crynux worker version: {_version}")
 
     sd_config = generate_sd_config(config)
     gpt_config = generate_gpt_config(config)
@@ -43,7 +45,7 @@ def worker(
     signal.signal(signal.SIGTERM, _signal_handle)
 
     with websockets.sync.client.connect(config.node_url) as websocket:
-        version_msg = {"version": version}
+        version_msg = {"version": _version}
         websocket.send(json.dumps(version_msg))
         raw_init_msg = websocket.recv()
         assert isinstance(raw_init_msg, str)
