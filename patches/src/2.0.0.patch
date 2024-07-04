@@ -1,0 +1,9 @@
+diff -urN -x __pycache__ -x '*dist-info' venv/lib/python3.10/site-packages/crynux_worker/__init__.py new_venv/lib/python3.10/site-packages/crynux_worker/__init__.py
+--- venv/lib/python3.10/site-packages/crynux_worker/__init__.py	2024-07-04 17:28:25.056644438 +0800
++++ new_venv/lib/python3.10/site-packages/crynux_worker/__init__.py	2024-07-04 17:12:20.244194935 +0800
+@@ -1,4 +1,4 @@
+-__version__ = "1.0.0"
++__version__ = "2.0.0"
+ 
+ def version():
+     return __version__
