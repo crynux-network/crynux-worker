@@ -101,7 +101,6 @@ class PrefetchTask(object):
         monitor_thread.start()
 
         selector = DefaultSelector()
-        selector.register(parent_pipe, EVENT_READ)
         selector.register(self.interrupt_read, EVENT_READ)
 
         current_models = 0
@@ -109,55 +108,54 @@ class PrefetchTask(object):
 
         try:
             while True:
-                for key, _ in selector.select():
+                for key, _ in selector.select(0):
                     if key.fileobj == self.interrupt_read:
                         prefetch_process.kill()
                         _logger.info("prefetch task is cancelled")
                         selector.unregister(self.interrupt_read)
                         self.interrupt_read.close()
                         return True
-                    elif key.fileobj == parent_pipe:
-                        try:
-                            content = parent_pipe.recv()
-                            if isinstance(content, tuple):
-                                assert content[0] == "error"
-                                err_msg = content[1]
+                if parent_pipe.poll(0):
+                    try:
+                        content = parent_pipe.recv()
+                        if isinstance(content, tuple):
+                            assert content[0] == "error"
+                            err_msg = content[1]
+                            payload_msg = WorkerPayloadMessage(
+                                worker_phase=WorkerPhase.Prefetch,
+                                has_payload=True,
+                                has_next=False,
+                                payload_type=PayloadType.Error,
+                            )
+                            websocket.send(payload_msg.model_dump_json())
+                            websocket.send(err_msg)
+
+                            _logger.error("Downloading models failed")
+                            _logger.error(err_msg)
+                            return False
+                        elif isinstance(content, str):
+                            print(content)
+                            if pattern.search(content) is not None:
+                                current_models += 1
+                                msg = f"Downloading models............ ({current_models}/{self.total_models})"
                                 payload_msg = WorkerPayloadMessage(
                                     worker_phase=WorkerPhase.Prefetch,
                                     has_payload=True,
-                                    has_next=False,
-                                    payload_type=PayloadType.Error,
+                                    has_next=True,
+                                    payload_type=PayloadType.Text,
                                 )
                                 websocket.send(payload_msg.model_dump_json())
-                                websocket.send(err_msg)
-
-                                _logger.error("Downloading models failed")
-                                _logger.error(err_msg)
-                                return False
-                            elif isinstance(content, str):
-                                print(content)
-                                if pattern.search(content) is not None:
-                                    current_models += 1
-                                    msg = f"Downloading models............ ({current_models}/{self.total_models})"
-                                    payload_msg = WorkerPayloadMessage(
-                                        worker_phase=WorkerPhase.Prefetch,
-                                        has_payload=True,
-                                        has_next=True,
-                                        payload_type=PayloadType.Text,
-                                    )
-                                    websocket.send(payload_msg.model_dump_json())
-                                    websocket.send(msg)
-                        except EOFError:
-                            payload_msg = WorkerPayloadMessage(
-                                worker_phase=WorkerPhase.Prefetch,
-                                has_payload=False,
-                                has_next=False,
-                            )
-                            websocket.send(payload_msg.model_dump_json())
-                            return True
+                                websocket.send(msg)
+                    except EOFError:
+                        payload_msg = WorkerPayloadMessage(
+                            worker_phase=WorkerPhase.Prefetch,
+                            has_payload=False,
+                            has_next=False,
+                        )
+                        websocket.send(payload_msg.model_dump_json())
+                        return True
         finally:
             monitor_thread.join()
-            selector.unregister(parent_pipe)
             parent_pipe.close()
             selector.close()
             self._status = "finished"
