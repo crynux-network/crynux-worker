@@ -115,8 +115,8 @@ class PrefetchTask(object):
                         selector.unregister(self.interrupt_read)
                         self.interrupt_read.close()
                         return True
-                if parent_pipe.poll(0):
-                    try:
+                try:
+                    if parent_pipe.poll(0):
                         content = parent_pipe.recv()
                         if isinstance(content, tuple):
                             assert content[0] == "error"
@@ -146,14 +146,14 @@ class PrefetchTask(object):
                                 )
                                 websocket.send(payload_msg.model_dump_json())
                                 websocket.send(msg)
-                    except EOFError:
-                        payload_msg = WorkerPayloadMessage(
-                            worker_phase=WorkerPhase.Prefetch,
-                            has_payload=False,
-                            has_next=False,
-                        )
-                        websocket.send(payload_msg.model_dump_json())
-                        return True
+                except (EOFError, BrokenPipeError):
+                    payload_msg = WorkerPayloadMessage(
+                        worker_phase=WorkerPhase.Prefetch,
+                        has_payload=False,
+                        has_next=False,
+                    )
+                    websocket.send(payload_msg.model_dump_json())
+                    return True
         finally:
             monitor_thread.join()
             parent_pipe.close()

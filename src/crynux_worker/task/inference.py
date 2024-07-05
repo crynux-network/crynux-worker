@@ -77,7 +77,7 @@ def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTCon
         signal.signal(signal.SIGTERM, _signal_handle)
 
         while not stop:
-            if pipe.poll():
+            if pipe.poll(0):
                 try:
                     task_input: TaskInput = pipe.recv()
                     if task_input.task_type == TaskType.SD:
@@ -208,7 +208,7 @@ class InferenceTask(object):
                     self._selector.unregister(self._interrupt_read)
                     self._interrupt_read.close()
                     return True
-            if self._parent_pipe.poll(0):
+            if self._parent_pipe.poll(timeout=0):
                 status, _, data = self._parent_pipe.recv()
                 if status == "error":
                     _logger.info("Initial inference task error")
