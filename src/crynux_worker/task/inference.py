@@ -77,24 +77,27 @@ def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTCon
         signal.signal(signal.SIGTERM, _signal_handle)
 
         while not stop:
-            if pipe.poll(0):
-                try:
-                    task_input: TaskInput = pipe.recv()
-                    if task_input.task_type == TaskType.SD:
-                        args = InferenceTaskArgs.model_validate_json(task_input.task_args)
-                    else:
-                        args = GPTTaskArgs.model_validate_json(task_input.task_args)
+            try:
+                if pipe.poll(0):
+                    try:
+                        task_input: TaskInput = pipe.recv()
+                        if task_input.task_type == TaskType.SD:
+                            args = InferenceTaskArgs.model_validate_json(task_input.task_args)
+                        else:
+                            args = GPTTaskArgs.model_validate_json(task_input.task_args)
 
-                    data = _inference_one_task(
-                        task_input.task_type, args, model_cache, sd_config, gpt_config
-                    )
-                    res = ("success", task_input, data)
-                except Exception as e:
-                    _logger.exception(e)
-                    tb = traceback.format_exc()
-                    res = ("error", task_input, tb)
+                        data = _inference_one_task(
+                            task_input.task_type, args, model_cache, sd_config, gpt_config
+                        )
+                        res = ("success", task_input, data)
+                    except Exception as e:
+                        _logger.exception(e)
+                        tb = traceback.format_exc()
+                        res = ("error", task_input, tb)
 
-                pipe.send(res)
+                    pipe.send(res)
+            except (EOFError, BrokenPipeError):
+                break
         logging.info("inference process exit normally")
     except KeyboardInterrupt:
         pass
