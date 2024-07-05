@@ -18,8 +18,15 @@ from sd_task.config import Config as SDConfig
 from sd_task.inference_task_args.task_args import InferenceTaskArgs
 from websockets.sync.connection import Connection as WSConnection
 
-from crynux_worker.model import (PayloadType, TaskInput, TaskType,
-                                 WorkerPayloadMessage, WorkerPhase)
+from crynux_worker.config import Config
+from crynux_worker.log import init as log_init
+from crynux_worker.model import (
+    PayloadType,
+    TaskInput,
+    TaskType,
+    WorkerPayloadMessage,
+    WorkerPhase,
+)
 from crynux_worker.model_cache import ModelCache
 
 _logger = logging.getLogger(__name__)
@@ -33,8 +40,7 @@ def _inference_one_task(
     gpt_config: GPTConfig,
 ):
     from gpt_task.inference import run_task as gpt_run_task
-    from sd_task.inference_task_runner.inference_task import \
-        run_task as sd_run_task
+    from sd_task.inference_task_runner.inference_task import run_task as sd_run_task
 
     results: List[str | bytes] = []
     try:
@@ -56,14 +62,11 @@ def _inference_one_task(
         raise ValueError("Task args invalid") from e
 
 
-def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTConfig):
+def _inference_process(
+    pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+):
     try:
-        logging.basicConfig(
-            format="[{asctime}] [{levelname:<8}] {name}: {message}",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            style="{",
-            level=logging.INFO,
-        )
+        log_init(config.log.dir, config.log.level, config.log.filename, root=True)
 
         model_cache = ModelCache()
 
@@ -73,7 +76,7 @@ def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTCon
             nonlocal stop
             stop = True
             logging.info("try to inference process gracefully")
-        
+
         signal.signal(signal.SIGTERM, _signal_handle)
 
         while not stop:
@@ -82,12 +85,18 @@ def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTCon
                     try:
                         task_input: TaskInput = pipe.recv()
                         if task_input.task_type == TaskType.SD:
-                            args = InferenceTaskArgs.model_validate_json(task_input.task_args)
+                            args = InferenceTaskArgs.model_validate_json(
+                                task_input.task_args
+                            )
                         else:
                             args = GPTTaskArgs.model_validate_json(task_input.task_args)
 
                         data = _inference_one_task(
-                            task_input.task_type, args, model_cache, sd_config, gpt_config
+                            task_input.task_type,
+                            args,
+                            model_cache,
+                            sd_config,
+                            gpt_config,
                         )
                         res = ("success", task_input, data)
                     except Exception as e:
@@ -105,8 +114,12 @@ def _inference_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTCon
 
 InferenceTaskStatus = Literal["idle", "running", "cancelled", "finished"]
 
+
 class InferenceTask(object):
-    def __init__(self, sd_config: SDConfig, gpt_config: GPTConfig) -> None:
+    def __init__(
+        self, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+    ) -> None:
+        self._config = config
         self._sd_config = sd_config
         self._gpt_config = gpt_config
 
@@ -114,7 +127,9 @@ class InferenceTask(object):
         parent_pipe, child_pipe = ctx.Pipe()
         self._parent_pipe = parent_pipe
         self._child_pipe = child_pipe
-        self._inference_process = ctx.Process(target=_inference_process, args=(child_pipe, sd_config, gpt_config))
+        self._inference_process = ctx.Process(
+            target=_inference_process, args=(child_pipe, config, sd_config, gpt_config)
+        )
 
         self._monitor_thread = Thread(target=self._monitor)
 
@@ -194,7 +209,7 @@ class InferenceTask(object):
             task_id=0,
             task_name="inference",
             task_type=task_type,
-            task_args=json.dumps(sd_inference_args)
+            task_args=json.dumps(sd_inference_args),
         )
 
         _logger.info(
@@ -231,7 +246,9 @@ class InferenceTask(object):
                         f"Initial inference task completes at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     )
                     payload_msg = WorkerPayloadMessage(
-                        worker_phase=WorkerPhase.InitInference, has_payload=False, has_next=False
+                        worker_phase=WorkerPhase.InitInference,
+                        has_payload=False,
+                        has_next=False,
                     )
                     websocket.send(payload_msg.model_dump_json())
                     return True
