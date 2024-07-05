@@ -6,11 +6,14 @@ import platform
 import signal
 import sys
 import time
+from contextlib import contextmanager
 from multiprocessing.connection import Connection
 from multiprocessing.context import SpawnContext
 
 import requests
 import whatthepatch
+
+from crynux_worker.config import get_config
 
 _logger = logging.getLogger(__name__)
 
@@ -88,34 +91,91 @@ def _worker():
         pass
 
 
-def _get_patch_contents(patch_url: str, current_version: str, platform_name: str):
-    try:
-        patch_contents = []
-        resp = requests.get(f"{patch_url}/patches.txt")
-        resp.raise_for_status()
+def get_requests_proxy_url(proxy) -> str | None:
+    if proxy is not None and proxy.host != "":
 
-        versions = resp.text.strip().split()
+        if "://" in proxy.host:
+            scheme, host = proxy.host.split("://", 2)
+        else:
+            scheme, host = "", proxy.host
 
-        if len(versions) > 0:
-            try:
-                index = versions.index(current_version)
-                versions = versions[index + 1 :]
-            except ValueError:
-                pass
+        proxy_str = ""
+        if scheme != "":
+            proxy_str += f"{scheme}://"
 
-        for version in versions:
-            sub_resp = requests.get(
-                f"{patch_url}/patches/{platform_name}/{version}.patch"
-            )
-            sub_resp.raise_for_status()
+        if proxy.username != "":
+            proxy_str += f"{proxy.username}"
 
-            patch_contents.append(sub_resp.text)
+            if proxy.password != "":
+                proxy_str += f":{proxy.password}"
 
-        return versions, patch_contents
-    except requests.RequestException as e:
-        _logger.exception(e)
-        _logger.error("get patch contents error")
-        return [], []
+            proxy_str += f"@"
+
+        proxy_str += f"{host}:{proxy.port}"
+
+        return proxy_str
+    else:
+        return None
+
+
+@contextmanager
+def requests_proxy_session(proxy):
+    proxy_url = get_requests_proxy_url(proxy)
+    if proxy_url is not None:
+        origin_http_proxy = os.environ.get("HTTP_PROXY", None)
+        origin_https_proxy = os.environ.get("HTTPS_PROXY", None)
+        os.environ["HTTP_PROXY"] = proxy_url
+        os.environ["HTTPS_PROXY"] = proxy_url
+        try:
+            yield {
+                "http": proxy_url,
+                "https": proxy_url,
+            }
+        finally:
+            if origin_http_proxy is not None:
+                os.environ["HTTP_PROXY"] = origin_http_proxy
+            else:
+                os.environ.pop("HTTP_PROXY")
+            if origin_https_proxy is not None:
+                os.environ["HTTPS_PROXY"] = origin_https_proxy
+            else:
+                os.environ.pop("HTTPS_PROXY")
+    else:
+        yield None
+
+
+def _get_patch_contents(
+    patch_url: str, current_version: str, platform_name: str, proxy
+):
+    with requests_proxy_session(proxy) as proxies:
+        try:
+            patch_contents = []
+            resp = requests.get(f"{patch_url}/patches.txt", proxies=proxies)
+            resp.raise_for_status()
+
+            versions = resp.text.strip().split()
+
+            if len(versions) > 0:
+                try:
+                    index = versions.index(current_version)
+                    versions = versions[index + 1 :]
+                except ValueError:
+                    pass
+
+            for version in versions:
+                sub_resp = requests.get(
+                    f"{patch_url}/patches/{platform_name}/{version}.patch",
+                    proxies=proxies,
+                )
+                sub_resp.raise_for_status()
+
+                patch_contents.append(sub_resp.text)
+
+            return versions, patch_contents
+        except requests.RequestException as e:
+            _logger.exception(e)
+            _logger.error("get patch contents error")
+            return [], []
 
 
 def _get_platform():
@@ -147,6 +207,9 @@ class DelayedKeyboardInterrupt:
 if __name__ == "__main__":
     mp.freeze_support()
 
+    cfg = get_config()
+    proxy = cfg.proxy
+
     patch_url = os.environ.get(
         "CRYNUX_WORKER_PATCH_URL",
         "https://raw.githubusercontent.com/crynux-ai/crynux-worker/main",
@@ -165,12 +228,10 @@ if __name__ == "__main__":
     try:
         version = get_version(ctx)
         remote_versions, patch_contents = _get_patch_contents(
-            patch_url, version, platform_name
+            patch_url, version, platform_name, proxy=proxy
         )
         if len(remote_versions) > 0:
-            for remote_version, patch_content in zip(
-                remote_versions, patch_contents
-            ):
+            for remote_version, patch_content in zip(remote_versions, patch_contents):
                 with DelayedKeyboardInterrupt():
                     apply_patch(patch_content)
 
@@ -180,7 +241,7 @@ if __name__ == "__main__":
         while True:
             version = get_version(ctx)
             remote_versions, patch_contents = _get_patch_contents(
-                patch_url, version, platform_name
+                patch_url, version, platform_name, proxy=proxy
             )
             if len(remote_versions) > 0:
                 for remote_version, patch_content in zip(
