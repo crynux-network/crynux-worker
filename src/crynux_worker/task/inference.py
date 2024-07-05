@@ -123,7 +123,6 @@ class InferenceTask(object):
 
         self._selector = DefaultSelector()
         self._selector.register(self._interrupt_read, EVENT_READ)
-        self._selector.register(self._parent_pipe, EVENT_READ)
 
     def _monitor(self):
         self._inference_process.join()
@@ -150,7 +149,6 @@ class InferenceTask(object):
     def close(self):
         if self._monitor_thread.is_alive():
             self._monitor_thread.join()
-        self._selector.unregister(self._parent_pipe)
         self._parent_pipe.close()
         self._selector.close()
         self._status = "finished"
@@ -202,14 +200,15 @@ class InferenceTask(object):
 
         self._parent_pipe.send(task_input)
 
-        for key, _ in self._selector.select():
-            if key.fileobj == self._interrupt_read:
-                self._inference_process.kill()
-                _logger.info("inference task is cancelled")
-                self._selector.unregister(self._interrupt_read)
-                self._interrupt_read.close()
-                return True
-            elif key.fileobj == self._parent_pipe:
+        while True:
+            for key, _ in self._selector.select(0):
+                if key.fileobj == self._interrupt_read:
+                    self._inference_process.kill()
+                    _logger.info("inference task is cancelled")
+                    self._selector.unregister(self._interrupt_read)
+                    self._interrupt_read.close()
+                    return True
+            if self._parent_pipe.poll(0):
                 status, _, data = self._parent_pipe.recv()
                 if status == "error":
                     _logger.info("Initial inference task error")
@@ -233,7 +232,6 @@ class InferenceTask(object):
                     )
                     websocket.send(payload_msg.model_dump_json())
                     return True
-        return False
 
     def run_inference(self, websocket: WSConnection):
         if self._status == "cancelled":
@@ -266,37 +264,37 @@ class InferenceTask(object):
                         _logger.info("inference task is cancelled")
                         self._selector.unregister(self._interrupt_read)
                         self._interrupt_read.close()
-                    elif key.fileobj == self._parent_pipe:
-                        status, task_input, data = self._parent_pipe.recv()
-                        if status == "success":
-                            _logger.info(
-                                f"Inference task {task_input.task_id} completes at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                            )
-                            if task_input.task_type == TaskType.SD:
-                                payload_type = PayloadType.PNG
-                            else:
-                                payload_type = PayloadType.Json
-
-                            for i, res in enumerate(data):
-                                payload_msg = WorkerPayloadMessage(
-                                    worker_phase=WorkerPhase.Inference,
-                                    has_payload=True,
-                                    has_next=i < len(data) - 1,
-                                    payload_type=payload_type,
-                                )
-                                websocket.send(payload_msg.model_dump_json())
-                                websocket.send(res)
+                if self._parent_pipe.poll(0):
+                    status, task_input, data = self._parent_pipe.recv()
+                    if status == "success":
+                        _logger.info(
+                            f"Inference task {task_input.task_id} completes at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        if task_input.task_type == TaskType.SD:
+                            payload_type = PayloadType.PNG
                         else:
-                            assert isinstance(data, str)
-                            _logger.error(f"Inference task {task_input.task_id} error")
+                            payload_type = PayloadType.Json
+
+                        for i, res in enumerate(data):
                             payload_msg = WorkerPayloadMessage(
                                 worker_phase=WorkerPhase.Inference,
                                 has_payload=True,
-                                has_next=False,
-                                payload_type=PayloadType.Error,
+                                has_next=i < len(data) - 1,
+                                payload_type=payload_type,
                             )
                             websocket.send(payload_msg.model_dump_json())
-                            websocket.send(data)
+                            websocket.send(res)
+                    else:
+                        assert isinstance(data, str)
+                        _logger.error(f"Inference task {task_input.task_id} error")
+                        payload_msg = WorkerPayloadMessage(
+                            worker_phase=WorkerPhase.Inference,
+                            has_payload=True,
+                            has_next=False,
+                            payload_type=PayloadType.Error,
+                        )
+                        websocket.send(payload_msg.model_dump_json())
+                        websocket.send(data)
         except Exception as e:
             _logger.exception(e)
             _logger.info("inference task error")
