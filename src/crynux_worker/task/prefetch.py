@@ -15,6 +15,8 @@ from gpt_task.config import Config as GPTConfig
 from sd_task.config import Config as SDConfig
 from websockets.sync.connection import Connection as WSConnection
 
+from crynux_worker.config import Config
+from crynux_worker.log import init as log_init
 from crynux_worker.model import PayloadType, WorkerPayloadMessage, WorkerPhase
 
 _logger = logging.getLogger(__name__)
@@ -32,19 +34,16 @@ class TeeOut(StringIO):
         return False
 
 
-def _prefetch_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTConfig):
+def _prefetch_process(
+    pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+):
     try:
         from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
         from sd_task.prefetch import prefetch_models as sd_prefetch_models
 
         tee = TeeOut(pipe)
         with redirect_stderr(tee), redirect_stdout(tee):
-            logging.basicConfig(
-                format="[{asctime}] [{levelname:<8}] {name}: {message}",
-                datefmt="%Y-%m-%d %H:%M:%S",
-                style="{",
-                level=logging.INFO,
-            )
+            log_init(config.log.dir, config.log.level, config.log.filename, root=True)
 
             try:
                 sd_prefetch_models(sd_config)
@@ -58,8 +57,10 @@ def _prefetch_process(pipe: Connection, sd_config: SDConfig, gpt_config: GPTConf
 
 PrefetchStatus = Literal["idle", "running", "cancelled", "finished"]
 
+
 class PrefetchTask(object):
-    def __init__(self, sd_config: SDConfig, gpt_config: GPTConfig, total_models: int):
+    def __init__(self, config: Config, sd_config: SDConfig, gpt_config: GPTConfig, total_models: int):
+        self.config = config
         self.sd_config = sd_config
         self.gpt_config = gpt_config
         self.total_models = total_models
@@ -89,7 +90,9 @@ class PrefetchTask(object):
         ctx = get_context("spawn")
         parent_pipe, child_pipe = ctx.Pipe()
 
-        prefetch_process = ctx.Process(target=_prefetch_process, args=(child_pipe, self.sd_config, self.gpt_config))
+        prefetch_process = ctx.Process(
+            target=_prefetch_process, args=(child_pipe, self.config, self.sd_config, self.gpt_config)
+        )
         prefetch_process.start()
 
         def _monitor():

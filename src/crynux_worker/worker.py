@@ -4,16 +4,15 @@ import signal
 
 import websockets.sync.client
 
-from crynux_worker.config import Config, get_config, generate_sd_config, generate_gpt_config
-from crynux_worker.task import PrefetchTask, InferenceTask
 from crynux_worker import version
+from crynux_worker.config import (Config, generate_gpt_config,
+                                  generate_sd_config, get_config)
+from crynux_worker.task import InferenceTask, PrefetchTask
 
 _logger = logging.getLogger(__name__)
 
 
-def worker(
-    config: Config | None = None
-):
+def worker(config: Config | None = None):
     if config is None:
         config = get_config()
 
@@ -23,7 +22,7 @@ def worker(
 
     sd_config = generate_sd_config(config)
     gpt_config = generate_gpt_config(config)
-    
+
     total_models = 0
     if sd_config.preloaded_models.base is not None:
         total_models += len(sd_config.preloaded_models.base)
@@ -33,9 +32,16 @@ def worker(
         total_models += len(sd_config.preloaded_models.controlnet)
     if sd_config.preloaded_models.vae is not None:
         total_models += len(sd_config.preloaded_models.vae)
-    prefetch_task = PrefetchTask(sd_config=sd_config, gpt_config=gpt_config, total_models=total_models)
+    prefetch_task = PrefetchTask(
+        config=config,
+        sd_config=sd_config,
+        gpt_config=gpt_config,
+        total_models=total_models,
+    )
 
-    inference_task = InferenceTask(sd_config=sd_config, gpt_config=gpt_config)
+    inference_task = InferenceTask(
+        config=config, sd_config=sd_config, gpt_config=gpt_config
+    )
 
     def _signal_handle(*args):
         _logger.info("terminate worker process")
