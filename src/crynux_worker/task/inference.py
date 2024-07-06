@@ -1,8 +1,10 @@
+import os
 import json
 import logging
 import signal
 import socket
 import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 from io import BytesIO
 from multiprocessing import get_context
@@ -66,48 +68,55 @@ def _inference_process(
     pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
 ):
     try:
-        log_init(config.log.dir, config.log.level, config.log.filename, root=True)
+        inference_log_file = os.path.join(config.log.dir, "crynux_worker_inference.log")
+        with open(inference_log_file, mode="a", encoding="utf-8") as f:
+            with redirect_stderr(f), redirect_stdout(f):
+                logging.basicConfig(
+                    format="[{asctime}] [{levelname:<8}] {name}: {message}",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                    style="{",
+                    level=logging.INFO,
+                )
+                model_cache = ModelCache()
 
-        model_cache = ModelCache()
+                stop = False
 
-        stop = False
+                def _signal_handle(*args):
+                    nonlocal stop
+                    stop = True
+                    logging.info("try to inference process gracefully")
 
-        def _signal_handle(*args):
-            nonlocal stop
-            stop = True
-            logging.info("try to inference process gracefully")
+                signal.signal(signal.SIGTERM, _signal_handle)
 
-        signal.signal(signal.SIGTERM, _signal_handle)
-
-        while not stop:
-            try:
-                if pipe.poll(0):
+                while not stop:
                     try:
-                        task_input: TaskInput = pipe.recv()
-                        if task_input.task_type == TaskType.SD:
-                            args = InferenceTaskArgs.model_validate_json(
-                                task_input.task_args
-                            )
-                        else:
-                            args = GPTTaskArgs.model_validate_json(task_input.task_args)
+                        if pipe.poll(0):
+                            try:
+                                task_input: TaskInput = pipe.recv()
+                                if task_input.task_type == TaskType.SD:
+                                    args = InferenceTaskArgs.model_validate_json(
+                                        task_input.task_args
+                                    )
+                                else:
+                                    args = GPTTaskArgs.model_validate_json(task_input.task_args)
 
-                        data = _inference_one_task(
-                            task_input.task_type,
-                            args,
-                            model_cache,
-                            sd_config,
-                            gpt_config,
-                        )
-                        res = ("success", task_input, data)
-                    except Exception as e:
-                        _logger.exception(e)
-                        tb = traceback.format_exc()
-                        res = ("error", task_input, tb)
+                                data = _inference_one_task(
+                                    task_input.task_type,
+                                    args,
+                                    model_cache,
+                                    sd_config,
+                                    gpt_config,
+                                )
+                                res = ("success", task_input, data)
+                            except Exception as e:
+                                _logger.exception(e)
+                                tb = traceback.format_exc()
+                                res = ("error", task_input, tb)
 
-                    pipe.send(res)
-            except (EOFError, BrokenPipeError):
-                break
-        logging.info("inference process exit normally")
+                            pipe.send(res)
+                    except (EOFError, BrokenPipeError):
+                        break
+                logging.info("inference process exit normally")
     except KeyboardInterrupt:
         pass
 

@@ -1,10 +1,11 @@
 import json
 import logging
+import os
 import re
 import socket
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
+from io import StringIO, TextIOBase
 from multiprocessing import get_context
 from multiprocessing.connection import Connection
 from selectors import EVENT_READ, DefaultSelector
@@ -23,11 +24,13 @@ _logger = logging.getLogger(__name__)
 
 
 class TeeOut(StringIO):
-    def __init__(self, pipe: Connection):
+    def __init__(self, pipe: Connection, file: TextIOBase):
         self.pipe = pipe
+        self.file = file
 
     def write(self, s: str) -> int:
         self.pipe.send(s.strip())
+        self.file.write(s)
         return len(s)
 
     def isatty(self):
@@ -41,16 +44,23 @@ def _prefetch_process(
         from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
         from sd_task.prefetch import prefetch_models as sd_prefetch_models
 
-        tee = TeeOut(pipe)
-        with redirect_stderr(tee), redirect_stdout(tee):
-            log_init(config.log.dir, config.log.level, config.log.filename, root=True)
+        prefetch_log_file = os.path.join(config.log.dir, "crynux_worker_prefetch.log")
+        with open(prefetch_log_file, mode="a", encoding="utf-8") as f:
+            tee = TeeOut(pipe, f)
+            with redirect_stderr(tee), redirect_stdout(tee):
+                logging.basicConfig(
+                    format="[{asctime}] [{levelname:<8}] {name}: {message}",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                    style="{",
+                    level=logging.INFO,
+                )
 
-            try:
-                sd_prefetch_models(sd_config)
-                gpt_prefetch_models(gpt_config)
-            except Exception:
-                tb = traceback.format_exc()
-                pipe.send(("error", tb))
+                try:
+                    sd_prefetch_models(sd_config)
+                    gpt_prefetch_models(gpt_config)
+                except Exception:
+                    tb = traceback.format_exc()
+                    pipe.send(("error", tb))
     except KeyboardInterrupt:
         pass
 
@@ -59,7 +69,13 @@ PrefetchStatus = Literal["idle", "running", "cancelled", "finished"]
 
 
 class PrefetchTask(object):
-    def __init__(self, config: Config, sd_config: SDConfig, gpt_config: GPTConfig, total_models: int):
+    def __init__(
+        self,
+        config: Config,
+        sd_config: SDConfig,
+        gpt_config: GPTConfig,
+        total_models: int,
+    ):
         self.config = config
         self.sd_config = sd_config
         self.gpt_config = gpt_config
@@ -91,7 +107,8 @@ class PrefetchTask(object):
         parent_pipe, child_pipe = ctx.Pipe()
 
         prefetch_process = ctx.Process(
-            target=_prefetch_process, args=(child_pipe, self.config, self.sd_config, self.gpt_config)
+            target=_prefetch_process,
+            args=(child_pipe, self.config, self.sd_config, self.gpt_config),
         )
         prefetch_process.start()
 
