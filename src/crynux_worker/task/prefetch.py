@@ -41,13 +41,14 @@ def _prefetch_process(
     pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
 ):
     try:
-        from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
-        from sd_task.prefetch import prefetch_models as sd_prefetch_models
 
         prefetch_log_file = os.path.join(config.log.dir, "crynux_worker_prefetch.log")
         with open(prefetch_log_file, mode="a", encoding="utf-8") as f:
             tee = TeeOut(pipe, f)
             with redirect_stderr(tee), redirect_stdout(tee):
+                from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
+                from sd_task.prefetch import prefetch_models as sd_prefetch_models
+
                 logging.basicConfig(
                     format="[{asctime}] [{levelname:<8}] {name}: {message}",
                     datefmt="%Y-%m-%d %H:%M:%S",
