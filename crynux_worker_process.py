@@ -9,6 +9,8 @@ import time
 from contextlib import contextmanager
 from multiprocessing.connection import Connection
 from multiprocessing.context import SpawnContext
+from packaging.version import Version
+from typing import Dict
 
 import requests
 import whatthepatch
@@ -146,10 +148,11 @@ def requests_proxy_session(proxy):
 
 def _get_patch_contents(
     patch_url: str, current_version: str, platform_name: str, proxy
-):
+) -> Dict[str, str]:
+    current_major = Version(current_version).major
     with requests_proxy_session(proxy) as proxies:
         try:
-            patch_contents = []
+            version_patches: Dict[str, str] = {}
             resp = requests.get(f"{patch_url}/patches.txt", proxies=proxies)
             resp.raise_for_status()
 
@@ -163,19 +166,21 @@ def _get_patch_contents(
                     pass
 
             for version in versions:
-                sub_resp = requests.get(
-                    f"{patch_url}/patches/{platform_name}/{version}.patch",
-                    proxies=proxies,
-                )
-                sub_resp.raise_for_status()
+                major = Version(version).major
+                if major == current_major:
+                    sub_resp = requests.get(
+                        f"{patch_url}/patches/{platform_name}/{version}.patch",
+                        proxies=proxies,
+                    )
+                    sub_resp.raise_for_status()
 
-                patch_contents.append(sub_resp.text)
+                    version_patches[version] = sub_resp.text
 
-            return versions, patch_contents
+            return version_patches
         except requests.RequestException as e:
             _logger.exception(e)
             _logger.error("get patch contents error")
-            return [], []
+            return {}
 
 
 def _get_platform():
@@ -227,28 +232,28 @@ if __name__ == "__main__":
 
     try:
         version = get_version(ctx)
-        remote_versions, patch_contents = _get_patch_contents(
+        version_patches = _get_patch_contents(
             patch_url, version, platform_name, proxy=proxy
         )
-        if len(remote_versions) > 0:
-            for remote_version, patch_content in zip(remote_versions, patch_contents):
+        if len(version_patches) > 0:
+            for remote_version, patch_content in version_patches.items():
                 with DelayedKeyboardInterrupt():
                     apply_patch(patch_content)
+                _logger.info(f"update worker to version {remote_version}")
 
         worker_process = ctx.Process(target=_worker)
         worker_process.start()
 
         while True:
             version = get_version(ctx)
-            remote_versions, patch_contents = _get_patch_contents(
+            version_patches = _get_patch_contents(
                 patch_url, version, platform_name, proxy=proxy
             )
-            if len(remote_versions) > 0:
-                for remote_version, patch_content in zip(
-                    remote_versions, patch_contents
-                ):
+            if len(version_patches) > 0:
+                for remote_version, patch_content in version_patches.items():
                     with DelayedKeyboardInterrupt():
                         apply_patch(patch_content)
+                    _logger.info(f"update worker to version {remote_version}")
 
                 worker_process.terminate()
                 worker_process.join()
