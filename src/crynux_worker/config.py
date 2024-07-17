@@ -112,6 +112,8 @@ class Config(BaseSettings):
     preloaded_models: PreloadedModelsConfig | None = None
     proxy: ProxyConfig | None = None
 
+    worker_url: str = "https://dy.relay.crynux.ai/v1/worker"
+
     model_config = YamlSettingsConfigDict(
         env_nested_delimiter="__",
         yaml_file=os.getenv("CRYNUX_WORKER_CONFIG", "config.yml"),
