@@ -1,7 +1,9 @@
 import json
 import logging
 import signal
+from contextlib import contextmanager
 
+import requests
 import websockets.sync.client
 
 from crynux_worker import version
@@ -10,6 +12,37 @@ from crynux_worker.config import (Config, generate_gpt_config,
 from crynux_worker.task import InferenceTask, PrefetchTask
 
 _logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def register_worker(version: str, worker_url: str):
+    joined = False
+    try:
+        resp = requests.post(f"{worker_url}/{version}")
+        if resp.status_code != 200:
+            err = resp.json()
+            _logger.error(f"worker join error: {err}")
+        else:
+            joined = True
+            _logger.info("worker join")
+    except Exception as e:
+        _logger.error("worker join unknown error")
+        _logger.exception(e)
+
+    try:
+        yield
+    finally:
+        if joined:
+            try:
+                resp = requests.delete(f"{worker_url}/{version}")
+                if resp.status_code != 200:
+                    err = resp.json()
+                    _logger.error(f"worker quit error: {err}")
+                else:
+                    _logger.info("worker quit")
+            except Exception as e:
+                _logger.error("worker quit unknown error")
+                _logger.exception(e)
 
 
 def worker(config: Config | None = None):
@@ -50,7 +83,9 @@ def worker(config: Config | None = None):
 
     signal.signal(signal.SIGTERM, _signal_handle)
 
-    with websockets.sync.client.connect(config.node_url) as websocket:
+    with websockets.sync.client.connect(config.node_url) as websocket, register_worker(
+        _version, config.worker_url
+    ):
         version_msg = {"version": _version}
         websocket.send(json.dumps(version_msg))
         raw_init_msg = websocket.recv()
