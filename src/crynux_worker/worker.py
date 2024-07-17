@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import signal
 from contextlib import contextmanager
 
@@ -14,11 +15,65 @@ from crynux_worker.task import InferenceTask, PrefetchTask
 _logger = logging.getLogger(__name__)
 
 
+def get_requests_proxy_url(proxy) -> str | None:
+    if proxy is not None and proxy.host != "":
+
+        if "://" in proxy.host:
+            scheme, host = proxy.host.split("://", 2)
+        else:
+            scheme, host = "", proxy.host
+
+        proxy_str = ""
+        if scheme != "":
+            proxy_str += f"{scheme}://"
+
+        if proxy.username != "":
+            proxy_str += f"{proxy.username}"
+
+            if proxy.password != "":
+                proxy_str += f":{proxy.password}"
+
+            proxy_str += f"@"
+
+        proxy_str += f"{host}:{proxy.port}"
+
+        return proxy_str
+    else:
+        return None
+
+
 @contextmanager
-def register_worker(version: str, worker_url: str):
+def requests_proxy_session(proxy):
+    proxy_url = get_requests_proxy_url(proxy)
+    if proxy_url is not None:
+        origin_http_proxy = os.environ.get("HTTP_PROXY", None)
+        origin_https_proxy = os.environ.get("HTTPS_PROXY", None)
+        os.environ["HTTP_PROXY"] = proxy_url
+        os.environ["HTTPS_PROXY"] = proxy_url
+        try:
+            yield {
+                "http": proxy_url,
+                "https": proxy_url,
+            }
+        finally:
+            if origin_http_proxy is not None:
+                os.environ["HTTP_PROXY"] = origin_http_proxy
+            else:
+                os.environ.pop("HTTP_PROXY")
+            if origin_https_proxy is not None:
+                os.environ["HTTPS_PROXY"] = origin_https_proxy
+            else:
+                os.environ.pop("HTTPS_PROXY")
+    else:
+        yield None
+
+
+@contextmanager
+def register_worker(version: str, worker_url: str, proxy = None):
     joined = False
     try:
-        resp = requests.post(f"{worker_url}/{version}")
+        with requests_proxy_session(proxy=proxy) as proxies:
+            resp = requests.post(f"{worker_url}/{version}", proxies=proxies)
         if resp.status_code != 200:
             err = resp.json()
             _logger.error(f"worker join error: {err}")
@@ -34,7 +89,8 @@ def register_worker(version: str, worker_url: str):
     finally:
         if joined:
             try:
-                resp = requests.delete(f"{worker_url}/{version}")
+                with requests_proxy_session(proxy=proxy) as proxies:
+                    resp = requests.delete(f"{worker_url}/{version}", proxies=proxies)
                 if resp.status_code != 200:
                     err = resp.json()
                     _logger.error(f"worker quit error: {err}")
@@ -84,7 +140,7 @@ def worker(config: Config | None = None):
     signal.signal(signal.SIGTERM, _signal_handle)
 
     with websockets.sync.client.connect(config.node_url) as websocket, register_worker(
-        _version, config.worker_url
+        _version, config.worker_url, config.proxy
     ):
         version_msg = {"version": _version}
         websocket.send(json.dumps(version_msg))
