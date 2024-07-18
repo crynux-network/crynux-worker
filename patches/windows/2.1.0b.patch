@@ -1,0 +1,159 @@
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/__init__.py crynux_worker_process/_internal_new/crynux_worker/__init__.py
+--- crynux_worker_process/_internal/crynux_worker/__init__.py	2024-07-08 12:14:09.939698961 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/__init__.py	2024-07-17 19:45:18.402099643 +0800
+@@ -1,4 +1,4 @@
+-__version__ = "2.0.0"
++__version__ = "2.1.0b"
+ 
+ def version():
+     return __version__
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/config.py crynux_worker_process/_internal_new/crynux_worker/config.py
+--- crynux_worker_process/_internal/crynux_worker/config.py	2024-07-08 12:14:09.939698961 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/config.py	2024-07-17 19:45:18.402099643 +0800
+@@ -112,6 +112,8 @@
+     preloaded_models: PreloadedModelsConfig | None = None
+     proxy: ProxyConfig | None = None
+ 
++    worker_url: str = "https://dy.relay.crynux.ai/v1/worker"
++
+     model_config = YamlSettingsConfigDict(
+         env_nested_delimiter="__",
+         yaml_file=os.getenv("CRYNUX_WORKER_CONFIG", "config.yml"),
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/task/prefetch.py crynux_worker_process/_internal_new/crynux_worker/task/prefetch.py
+--- crynux_worker_process/_internal/crynux_worker/task/prefetch.py	2024-07-08 12:14:09.939698961 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/task/prefetch.py	2024-07-17 19:45:18.402099643 +0800
+@@ -41,13 +41,14 @@
+     pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+ ):
+     try:
+-        from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
+-        from sd_task.prefetch import prefetch_models as sd_prefetch_models
+ 
+         prefetch_log_file = os.path.join(config.log.dir, "crynux_worker_prefetch.log")
+         with open(prefetch_log_file, mode="a", encoding="utf-8") as f:
+             tee = TeeOut(pipe, f)
+             with redirect_stderr(tee), redirect_stdout(tee):
++                from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
++                from sd_task.prefetch import prefetch_models as sd_prefetch_models
++
+                 logging.basicConfig(
+                     format="[{asctime}] [{levelname:<8}] {name}: {message}",
+                     datefmt="%Y-%m-%d %H:%M:%S",
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/worker.py crynux_worker_process/_internal_new/crynux_worker/worker.py
+--- crynux_worker_process/_internal/crynux_worker/worker.py	2024-07-08 12:14:09.939698961 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/worker.py	2024-07-17 19:45:18.402099643 +0800
+@@ -1,7 +1,10 @@
+ import json
+ import logging
++import os
+ import signal
++from contextlib import contextmanager
+ 
++import requests
+ import websockets.sync.client
+ 
+ from crynux_worker import version
+@@ -12,6 +15,92 @@
+ _logger = logging.getLogger(__name__)
+ 
+ 
++def get_requests_proxy_url(proxy) -> str | None:
++    if proxy is not None and proxy.host != "":
++
++        if "://" in proxy.host:
++            scheme, host = proxy.host.split("://", 2)
++        else:
++            scheme, host = "", proxy.host
++
++        proxy_str = ""
++        if scheme != "":
++            proxy_str += f"{scheme}://"
++
++        if proxy.username != "":
++            proxy_str += f"{proxy.username}"
++
++            if proxy.password != "":
++                proxy_str += f":{proxy.password}"
++
++            proxy_str += f"@"
++
++        proxy_str += f"{host}:{proxy.port}"
++
++        return proxy_str
++    else:
++        return None
++
++
++@contextmanager
++def requests_proxy_session(proxy):
++    proxy_url = get_requests_proxy_url(proxy)
++    if proxy_url is not None:
++        origin_http_proxy = os.environ.get("HTTP_PROXY", None)
++        origin_https_proxy = os.environ.get("HTTPS_PROXY", None)
++        os.environ["HTTP_PROXY"] = proxy_url
++        os.environ["HTTPS_PROXY"] = proxy_url
++        try:
++            yield {
++                "http": proxy_url,
++                "https": proxy_url,
++            }
++        finally:
++            if origin_http_proxy is not None:
++                os.environ["HTTP_PROXY"] = origin_http_proxy
++            else:
++                os.environ.pop("HTTP_PROXY")
++            if origin_https_proxy is not None:
++                os.environ["HTTPS_PROXY"] = origin_https_proxy
++            else:
++                os.environ.pop("HTTPS_PROXY")
++    else:
++        yield None
++
++
++@contextmanager
++def register_worker(version: str, worker_url: str, proxy = None):
++    joined = False
++    try:
++        with requests_proxy_session(proxy=proxy) as proxies:
++            resp = requests.post(f"{worker_url}/{version}", proxies=proxies)
++        if resp.status_code != 200:
++            err = resp.json()
++            _logger.error(f"worker join error: {err}")
++        else:
++            joined = True
++            _logger.info("worker join")
++    except Exception as e:
++        _logger.error("worker join unknown error")
++        _logger.exception(e)
++
++    try:
++        yield
++    finally:
++        if joined:
++            try:
++                with requests_proxy_session(proxy=proxy) as proxies:
++                    resp = requests.delete(f"{worker_url}/{version}", proxies=proxies)
++                if resp.status_code != 200:
++                    err = resp.json()
++                    _logger.error(f"worker quit error: {err}")
++                else:
++                    _logger.info("worker quit")
++            except Exception as e:
++                _logger.error("worker quit unknown error")
++                _logger.exception(e)
++
++
+ def worker(config: Config | None = None):
+     if config is None:
+         config = get_config()
+@@ -50,7 +139,9 @@
+ 
+     signal.signal(signal.SIGTERM, _signal_handle)
+ 
+-    with websockets.sync.client.connect(config.node_url) as websocket:
++    with websockets.sync.client.connect(config.node_url) as websocket, register_worker(
++        _version, config.worker_url, config.proxy
++    ):
+         version_msg = {"version": _version}
+         websocket.send(json.dumps(version_msg))
+         raw_init_msg = websocket.recv()
