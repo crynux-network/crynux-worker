@@ -19,26 +19,6 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
      model_config = YamlSettingsConfigDict(
          env_nested_delimiter="__",
          yaml_file=os.getenv("CRYNUX_WORKER_CONFIG", "config.yml"),
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/crynux_worker/task/prefetch.py worker/new_venv/lib/python3.10/site-packages/crynux_worker/task/prefetch.py
---- worker/venv/lib/python3.10/site-packages/crynux_worker/task/prefetch.py	2024-07-08 12:14:09.939698961 +0800
-+++ worker/new_venv/lib/python3.10/site-packages/crynux_worker/task/prefetch.py	2024-07-17 19:45:18.402099643 +0800
-@@ -41,13 +41,14 @@
-     pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
- ):
-     try:
--        from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
--        from sd_task.prefetch import prefetch_models as sd_prefetch_models
- 
-         prefetch_log_file = os.path.join(config.log.dir, "crynux_worker_prefetch.log")
-         with open(prefetch_log_file, mode="a", encoding="utf-8") as f:
-             tee = TeeOut(pipe, f)
-             with redirect_stderr(tee), redirect_stdout(tee):
-+                from gpt_task.prefetch import prefetch_models as gpt_prefetch_models
-+                from sd_task.prefetch import prefetch_models as sd_prefetch_models
-+
-                 logging.basicConfig(
-                     format="[{asctime}] [{levelname:<8}] {name}: {message}",
-                     datefmt="%Y-%m-%d %H:%M:%S",
 diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/crynux_worker/worker.py worker/new_venv/lib/python3.10/site-packages/crynux_worker/worker.py
 --- worker/venv/lib/python3.10/site-packages/crynux_worker/worker.py	2024-07-08 12:14:09.939698961 +0800
 +++ worker/new_venv/lib/python3.10/site-packages/crynux_worker/worker.py	2024-07-17 19:45:18.402099643 +0800
