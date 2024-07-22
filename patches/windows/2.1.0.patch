@@ -1,0 +1,9 @@
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/__init__.py crynux_worker_process/_internal_new/crynux_worker/__init__.py
+--- crynux_worker_process/_internal/crynux_worker/__init__.py	2024-07-22 11:35:02.433476700 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/__init__.py	2024-07-22 11:46:32.832180400 +0800
+@@ -1,4 +1,4 @@
+-__version__ = "2.1.0b"
++__version__ = "2.1.0"
+ 
+ def version():
+     return __version__
