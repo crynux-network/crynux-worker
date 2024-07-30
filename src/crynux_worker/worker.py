@@ -132,39 +132,52 @@ def worker(config: Config | None = None):
         config=config, sd_config=sd_config, gpt_config=gpt_config
     )
 
+    _stop = False
+
     def _signal_handle(*args):
         _logger.info("terminate worker process")
+        nonlocal _stop
+        _stop = True
         prefetch_task.cancel()
         inference_task.cancel()
 
     signal.signal(signal.SIGTERM, _signal_handle)
 
-    with websockets.sync.client.connect(config.node_url) as websocket, register_worker(
-        _version, config.worker_url, config.proxy
-    ):
-        version_msg = {"version": _version}
-        websocket.send(json.dumps(version_msg))
-        raw_init_msg = websocket.recv()
-        assert isinstance(raw_init_msg, str)
-        init_msg = json.loads(raw_init_msg)
-        assert "worker_id" in init_msg
-        worker_id = init_msg["worker_id"]
+    _prefetched = False
+    _init_inferenced = False
 
-        _logger.info(f"Connected, worker id {worker_id}")
+    while not _stop:
+        with websockets.sync.client.connect(config.node_url) as websocket, register_worker(
+            _version, config.worker_url, config.proxy
+        ):
+            version_msg = {"version": _version}
+            websocket.send(json.dumps(version_msg))
+            raw_init_msg = websocket.recv()
+            assert isinstance(raw_init_msg, str)
+            init_msg = json.loads(raw_init_msg)
+            assert "worker_id" in init_msg
+            worker_id = init_msg["worker_id"]
 
-        # prefetch
-        success = prefetch_task.run(websocket)
-        if not success:
-            raise ValueError("prefetching models failed")
+            _logger.info(f"Connected, worker id {worker_id}")
 
-        inference_task.start()
-        try:
-            # init inference
-            success = inference_task.run_init_inference(websocket)
-            if not success:
-                raise ValueError("init inferece task failed")
+            # prefetch
+            if not _prefetched:
+                success = prefetch_task.run(websocket)
+                if not success:
+                    raise ValueError("prefetching models failed")
+                else:
+                    _prefetched = True
 
-            # inference
-            inference_task.run_inference(websocket)
-        finally:
-            inference_task.close()
+            inference_task.start()
+            try:
+                # init inference
+                if not _init_inferenced:
+                    success = inference_task.run_init_inference(websocket)
+                    if not success:
+                        raise ValueError("init inferece task failed")
+                    else:
+                        _init_inferenced = True
+                # inference
+                inference_task.run_inference(websocket)
+            finally:
+                inference_task.close()
