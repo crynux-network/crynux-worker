@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class TaskType(int, Enum):
     SD = 0
     LLM = 1
+    SD_FT = 2
 
 
 class TaskInput(BaseModel):
