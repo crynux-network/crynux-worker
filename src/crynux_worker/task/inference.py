@@ -17,12 +17,10 @@ from gpt_task.config import Config as GPTConfig
 from gpt_task.models import GPTTaskArgs
 from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
-from sd_task.inference_task_args.task_args import InferenceTaskArgs
-from sd_task.finetune_task_args import FinetuneLoraTaskArgs
+from sd_task.task_args import InferenceTaskArgs, FinetuneLoraTaskArgs
 from websockets.sync.connection import Connection as WSConnection
 
 from crynux_worker.config import Config
-from crynux_worker.log import init as log_init
 from crynux_worker.model import (
     PayloadType,
     TaskInput,
@@ -42,9 +40,8 @@ def _inference_one_task(
     sd_config: SDConfig,
     gpt_config: GPTConfig,
 ):
-    from gpt_task.inference import run_task as gpt_run_task
-    from sd_task.inference_task_runner.inference_task import run_task as sd_run_task
-    from sd_task.finetune_task_runner import run_task as sd_ft_run_task
+    from gpt_task.inference import run_task as run_gpt_task
+    from sd_task.task_runner import run_inference_task, run_finetune_lora_task
 
     results: List[str | bytes] = []
     try:
@@ -52,7 +49,7 @@ def _inference_one_task(
             args = InferenceTaskArgs.model_validate_json(
                 task_input.task_args
             )
-            imgs = sd_run_task(args, model_cache=model_cache, config=sd_config)
+            imgs = run_inference_task(args, model_cache=model_cache, config=sd_config)
             for img in imgs:
                 f = BytesIO()
                 img.save(f, format="PNG")
@@ -60,13 +57,13 @@ def _inference_one_task(
                 results.append(img_bytes)
         elif task_input.task_type == TaskType.LLM:
             args = GPTTaskArgs.model_validate_json(task_input.task_args)
-            resp = gpt_run_task(args, model_cache=model_cache, config=gpt_config)
+            resp = run_gpt_task(args, model_cache=model_cache, config=gpt_config)
             resp_json_str = json.dumps(resp)
             results.append(resp_json_str)
-        elif task_input.task_type == TaskType.SD_FT:
+        elif task_input.task_type == TaskType.SD_FT_LORA:
             args = FinetuneLoraTaskArgs.model_validate_json(task_input.task_args)
             output_dir = os.path.join(config.output_dir, str(task_input.task_id))
-            sd_ft_run_task(args, output_dir=output_dir, config=sd_config)
+            run_finetune_lora_task(args, output_dir=output_dir, config=sd_config)
             results.append(os.path.abspath(output_dir))
 
         return results
