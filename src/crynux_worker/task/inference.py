@@ -17,11 +17,10 @@ from gpt_task.config import Config as GPTConfig
 from gpt_task.models import GPTTaskArgs
 from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
-from sd_task.inference_task_args.task_args import InferenceTaskArgs
+from sd_task.task_args import InferenceTaskArgs, FinetuneLoraTaskArgs
 from websockets.sync.connection import Connection as WSConnection
 
 from crynux_worker.config import Config
-from crynux_worker.log import init as log_init
 from crynux_worker.model import (
     PayloadType,
     TaskInput,
@@ -35,30 +34,38 @@ _logger = logging.getLogger(__name__)
 
 
 def _inference_one_task(
-    task_type: TaskType,
-    args: InferenceTaskArgs | GPTTaskArgs,
+    task_input: TaskInput,
     model_cache: ModelCache,
+    config: Config,
     sd_config: SDConfig,
     gpt_config: GPTConfig,
 ):
-    from gpt_task.inference import run_task as gpt_run_task
-    from sd_task.inference_task_runner.inference_task import run_task as sd_run_task
+    from gpt_task.inference import run_task as run_gpt_task
+    from sd_task.task_runner import run_inference_task, run_finetune_lora_task
 
     results: List[str | bytes] = []
     try:
-        if task_type == TaskType.SD:
-            assert isinstance(args, InferenceTaskArgs)
-            imgs = sd_run_task(args, model_cache=model_cache, config=sd_config)
+        if task_input.task_type == TaskType.SD:
+            args = InferenceTaskArgs.model_validate_json(
+                task_input.task_args
+            )
+            imgs = run_inference_task(args, model_cache=model_cache, config=sd_config)
             for img in imgs:
                 f = BytesIO()
                 img.save(f, format="PNG")
                 img_bytes = f.getvalue()
                 results.append(img_bytes)
-        elif task_type == TaskType.LLM:
-            assert isinstance(args, GPTTaskArgs)
-            resp = gpt_run_task(args, model_cache=model_cache, config=gpt_config)
+        elif task_input.task_type == TaskType.LLM:
+            args = GPTTaskArgs.model_validate_json(task_input.task_args)
+            resp = run_gpt_task(args, model_cache=model_cache, config=gpt_config)
             resp_json_str = json.dumps(resp)
             results.append(resp_json_str)
+        elif task_input.task_type == TaskType.SD_FT_LORA:
+            args = FinetuneLoraTaskArgs.model_validate_json(task_input.task_args)
+            output_dir = os.path.join(config.output_dir, str(task_input.task_id))
+            run_finetune_lora_task(args, output_dir=output_dir, config=sd_config)
+            results.append(os.path.abspath(output_dir))
+
         return results
     except ValidationError as e:
         raise ValueError("Task args invalid") from e
@@ -91,21 +98,14 @@ def _inference_process(
                 while not stop:
                     try:
                         if pipe.poll(0):
+                            task_input: TaskInput = pipe.recv()
                             try:
-                                task_input: TaskInput = pipe.recv()
-                                if task_input.task_type == TaskType.SD:
-                                    args = InferenceTaskArgs.model_validate_json(
-                                        task_input.task_args
-                                    )
-                                else:
-                                    args = GPTTaskArgs.model_validate_json(task_input.task_args)
-
                                 data = _inference_one_task(
-                                    task_input.task_type,
-                                    args,
-                                    model_cache,
-                                    sd_config,
-                                    gpt_config,
+                                    task_input=task_input,
+                                    model_cache=model_cache,
+                                    config=config,
+                                    sd_config=sd_config,
+                                    gpt_config=gpt_config,
                                 )
                                 res = ("success", task_input, data)
                             except Exception as e:
@@ -301,8 +301,10 @@ class InferenceTask(object):
                         )
                         if task_input.task_type == TaskType.SD:
                             payload_type = PayloadType.PNG
-                        else:
+                        elif task_input.task_type == TaskType.LLM:
                             payload_type = PayloadType.Json
+                        else:
+                            payload_type = PayloadType.Text
 
                         for i, res in enumerate(data):
                             payload_msg = WorkerPayloadMessage(

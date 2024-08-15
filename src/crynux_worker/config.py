@@ -113,6 +113,7 @@ class Config(BaseSettings):
     proxy: ProxyConfig | None = None
 
     worker_url: str = "https://dy.relay.crynux.ai/v1/worker"
+    output_dir: str = "results"
 
     model_config = YamlSettingsConfigDict(
         env_nested_delimiter="__",
