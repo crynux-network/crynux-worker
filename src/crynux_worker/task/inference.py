@@ -202,7 +202,7 @@ class InferenceTask(object):
         )
         sd_inference_args = {
             "version": "2.0.0",
-            "base_model": {"name": "runwayml/stable-diffusion-v1-5"},
+            "base_model": {"name": "crynux-ai/stable-diffusion-v1-5"},
             "prompt": prompt,
             "negative_prompt": "",
             "task_config": {
