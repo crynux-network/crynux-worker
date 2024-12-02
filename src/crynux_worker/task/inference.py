@@ -62,7 +62,7 @@ def _inference_one_task(
             results.append(resp_json_str)
         elif task_input.task_type == TaskType.SD_FT_LORA:
             args = FinetuneLoraTaskArgs.model_validate_json(task_input.task_args)
-            output_dir = os.path.join(config.output_dir, str(task_input.task_id))
+            output_dir = os.path.join(config.output_dir, task_input.task_id_commitment)
             run_finetune_lora_task(args, output_dir=output_dir, config=sd_config)
             results.append(os.path.abspath(output_dir))
 
@@ -215,7 +215,7 @@ class InferenceTask(object):
         }
         task_type = TaskType.SD
         task_input = TaskInput(
-            task_id=0,
+            task_id_commitment=bytes([0 for _ in range(32)]).hex(),
             task_name="inference",
             task_type=task_type,
             task_args=json.dumps(sd_inference_args),
@@ -280,7 +280,7 @@ class InferenceTask(object):
                         task_input = TaskInput.model_validate_json(raw_task_input)
 
                         _logger.info(
-                            f"Inference task {task_input.task_id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            f"Inference task {task_input.task_id_commitment} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                         )
                         self._parent_pipe.send(task_input)
                     websocket.send("task received")
