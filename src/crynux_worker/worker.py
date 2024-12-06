@@ -10,7 +10,8 @@ import websockets.sync.client
 from crynux_worker import version
 from crynux_worker.config import (Config, generate_gpt_config,
                                   generate_sd_config, get_config)
-from crynux_worker.task import InferenceTask, PrefetchTask
+from crynux_worker.task import (HFTaskRunner, InferenceTask, MockTaskRunner,
+                                PrefetchTask)
 
 _logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def requests_proxy_session(proxy):
 
 
 @contextmanager
-def register_worker(version: str, worker_url: str, proxy = None):
+def register_worker(version: str, worker_url: str, proxy=None):
     joined = False
     try:
         with requests_proxy_session(proxy=proxy) as proxies:
@@ -122,6 +123,7 @@ def worker(config: Config | None = None):
     if sd_config.preloaded_models.vae is not None:
         total_models += len(sd_config.preloaded_models.vae)
     prefetch_task = PrefetchTask(
+        task_runner_cls=HFTaskRunner,
         config=config,
         sd_config=sd_config,
         gpt_config=gpt_config,
@@ -129,7 +131,10 @@ def worker(config: Config | None = None):
     )
 
     inference_task = InferenceTask(
-        config=config, sd_config=sd_config, gpt_config=gpt_config
+        task_runner_cls=HFTaskRunner,
+        config=config,
+        sd_config=sd_config,
+        gpt_config=gpt_config,
     )
 
     _stop = False
@@ -147,9 +152,9 @@ def worker(config: Config | None = None):
     _init_inferenced = False
 
     while not _stop:
-        with websockets.sync.client.connect(config.node_url) as websocket, register_worker(
-            _version, config.worker_url, config.proxy
-        ):
+        with websockets.sync.client.connect(
+            config.node_url
+        ) as websocket, register_worker(_version, config.worker_url, config.proxy):
             version_msg = {"version": _version}
             websocket.send(json.dumps(version_msg))
             raw_init_msg = websocket.recv()

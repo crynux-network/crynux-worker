@@ -6,18 +6,15 @@ import socket
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
-from io import BytesIO
 from multiprocessing import get_context
 from multiprocessing.connection import Connection
 from selectors import EVENT_READ, DefaultSelector
 from threading import Thread
-from typing import List, Literal
+from typing import Type, Literal
 
 from gpt_task.config import Config as GPTConfig
-from gpt_task.models import GPTTaskArgs
 from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
-from sd_task.task_args import InferenceTaskArgs, FinetuneLoraTaskArgs
 from websockets.sync.connection import Connection as WSConnection
 
 from crynux_worker.config import Config
@@ -29,42 +26,32 @@ from crynux_worker.model import (
     WorkerPhase,
 )
 from crynux_worker.model_cache import ModelCache
+from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
 
 
 def _inference_one_task(
+    task_runner: TaskRunner,
     task_input: TaskInput,
     model_cache: ModelCache,
     config: Config,
     sd_config: SDConfig,
     gpt_config: GPTConfig,
 ):
-    from gpt_task.inference import run_task as run_gpt_task
-    from sd_task.task_runner import run_inference_task, run_finetune_lora_task
 
-    results: List[str | bytes] = []
     try:
-        if task_input.task_type == TaskType.SD:
-            args = InferenceTaskArgs.model_validate_json(
-                task_input.task_args
-            )
-            imgs = run_inference_task(args, model_cache=model_cache, config=sd_config)
-            for img in imgs:
-                f = BytesIO()
-                img.save(f, format="PNG")
-                img_bytes = f.getvalue()
-                results.append(img_bytes)
-        elif task_input.task_type == TaskType.LLM:
-            args = GPTTaskArgs.model_validate_json(task_input.task_args)
-            resp = run_gpt_task(args, model_cache=model_cache, config=gpt_config)
-            resp_json_str = json.dumps(resp)
-            results.append(resp_json_str)
-        elif task_input.task_type == TaskType.SD_FT_LORA:
-            args = FinetuneLoraTaskArgs.model_validate_json(task_input.task_args)
+        output_dir = None
+        if task_input.task_type == TaskType.SD_FT_LORA:
             output_dir = os.path.join(config.output_dir, task_input.task_id_commitment)
-            run_finetune_lora_task(args, output_dir=output_dir, config=sd_config)
-            results.append(os.path.abspath(output_dir))
+        results = task_runner.run_inference_task(
+            task_type=task_input.task_type,
+            task_args=task_input.task_args,
+            model_cache=model_cache,
+            sd_config=sd_config,
+            gpt_config=gpt_config,
+            output_dir=output_dir,
+        )
 
         return results
     except ValidationError as e:
@@ -72,9 +59,10 @@ def _inference_one_task(
 
 
 def _inference_process(
-    pipe: Connection, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+    pipe: Connection, task_runner_cls: Type[TaskRunner], config: Config, sd_config: SDConfig, gpt_config: GPTConfig
 ):
     try:
+        task_runner = task_runner_cls()
         inference_log_file = os.path.join(config.log.dir, "crynux_worker_inference.log")
         with open(inference_log_file, mode="a", encoding="utf-8") as f:
             with redirect_stderr(f), redirect_stdout(f):
@@ -101,6 +89,7 @@ def _inference_process(
                             task_input: TaskInput = pipe.recv()
                             try:
                                 data = _inference_one_task(
+                                    task_runner=task_runner,
                                     task_input=task_input,
                                     model_cache=model_cache,
                                     config=config,
@@ -126,7 +115,7 @@ InferenceTaskStatus = Literal["idle", "running", "cancelled", "finished"]
 
 class InferenceTask(object):
     def __init__(
-        self, config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+        self, task_runner_cls: Type[TaskRunner], config: Config, sd_config: SDConfig, gpt_config: GPTConfig
     ) -> None:
         self._config = config
         self._sd_config = sd_config
@@ -137,7 +126,7 @@ class InferenceTask(object):
         self._parent_pipe = parent_pipe
         self._child_pipe = child_pipe
         self._inference_process = ctx.Process(
-            target=_inference_process, args=(child_pipe, config, sd_config, gpt_config)
+            target=_inference_process, args=(child_pipe, task_runner_cls, config, sd_config, gpt_config)
         )
 
         self._monitor_thread = Thread(target=self._monitor)
