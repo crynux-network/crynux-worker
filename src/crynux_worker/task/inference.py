@@ -286,7 +286,7 @@ class InferenceTask(object):
                     status, task_input, data = self._parent_pipe.recv()
                     if status == "success":
                         _logger.info(
-                            f"Inference task {task_input.task_id} completes at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            f"Inference task {task_input.task_id_commitment} completes at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                         )
                         if task_input.task_type == TaskType.SD:
                             payload_type = PayloadType.PNG
@@ -306,7 +306,7 @@ class InferenceTask(object):
                             websocket.send(res)
                     else:
                         assert isinstance(data, str)
-                        _logger.error(f"Inference task {task_input.task_id} error")
+                        _logger.error(f"Inference task {task_input.task_id_commitment} error")
                         payload_msg = WorkerPayloadMessage(
                             worker_phase=WorkerPhase.Inference,
                             has_payload=True,
