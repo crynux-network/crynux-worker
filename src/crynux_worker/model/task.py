@@ -17,6 +17,7 @@ class ModelConfig(BaseModel):
 
 class DownloadTaskInput(BaseModel):
     task_type: TaskType
+    task_id_commitment: str
     model_type: Literal["base", "vae", "controlnet"]
     model: ModelConfig
 
@@ -30,7 +31,7 @@ class InferenceTaskInput(BaseModel):
 
 class TaskInput(BaseModel):
     task_name: str
-    input: DownloadTaskInput | InferenceTaskInput
+    task: DownloadTaskInput | InferenceTaskInput
 
 
 class TaskResult(BaseModel):

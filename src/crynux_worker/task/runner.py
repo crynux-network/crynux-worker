@@ -47,16 +47,17 @@ class HFTaskRunner(TaskRunner):
         if task_type == TaskType.LLM:
             from gpt_task.prefetch import download_model
 
-            download_model(
-                model_name, gpt_config.data_dir.models.huggingface, gpt_config.proxy
-            )
+            if gpt_config.data_dir is None:
+                hf_cache_dir = None
+            else:
+                hf_cache_dir = gpt_config.data_dir.models.huggingface
+
+            download_model(model_name, hf_cache_dir, gpt_config.proxy)
         else:
             from diffusers import AutoencoderKL, ControlNetModel
             from diffusers.utils import SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME
-            from sd_task.download_model import (
-                check_and_download_hf_model,
-                check_and_download_hf_pipeline,
-            )
+            from sd_task.download_model import (check_and_download_hf_model,
+                                                check_and_download_hf_pipeline)
 
             if model_type == "base":
                 check_and_download_hf_pipeline(

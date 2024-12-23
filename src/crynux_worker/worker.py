@@ -10,8 +10,7 @@ import websockets.sync.client
 from crynux_worker import version
 from crynux_worker.config import (Config, generate_gpt_config,
                                   generate_sd_config, get_config)
-from crynux_worker.task import (HFTaskRunner, InferenceTask, MockTaskRunner,
-                                PrefetchTask)
+from crynux_worker.task import HFTaskRunner, MockTaskRunner, TaskWorker
 
 _logger = logging.getLogger(__name__)
 
@@ -113,43 +112,22 @@ def worker(config: Config | None = None):
     sd_config = generate_sd_config(config)
     gpt_config = generate_gpt_config(config)
 
-    total_models = 0
-    if sd_config.preloaded_models.base is not None:
-        total_models += len(sd_config.preloaded_models.base)
-    if gpt_config.preloaded_models.base is not None:
-        total_models += len(gpt_config.preloaded_models.base)
-    if sd_config.preloaded_models.controlnet is not None:
-        total_models += len(sd_config.preloaded_models.controlnet)
-    if sd_config.preloaded_models.vae is not None:
-        total_models += len(sd_config.preloaded_models.vae)
-    prefetch_task = PrefetchTask(
-        task_runner_cls=HFTaskRunner,
+    task_worker = TaskWorker(
+        task_runner_cls=MockTaskRunner,
         config=config,
         sd_config=sd_config,
-        gpt_config=gpt_config,
-        total_models=total_models,
+        gpt_config=gpt_config
     )
-
-    inference_task = InferenceTask(
-        task_runner_cls=HFTaskRunner,
-        config=config,
-        sd_config=sd_config,
-        gpt_config=gpt_config,
-    )
-
     _stop = False
 
     def _signal_handle(*args):
         _logger.info("terminate worker process")
         nonlocal _stop
         _stop = True
-        prefetch_task.cancel()
-        inference_task.cancel()
+        task_worker.cancel()
+
 
     signal.signal(signal.SIGTERM, _signal_handle)
-
-    _prefetched = False
-    _init_inferenced = False
 
     while not _stop:
         with websockets.sync.client.connect(
@@ -165,24 +143,4 @@ def worker(config: Config | None = None):
 
             _logger.info(f"Connected, worker id {worker_id}")
 
-            # prefetch
-            if not _prefetched:
-                success = prefetch_task.run(websocket)
-                if not success:
-                    raise ValueError("prefetching models failed")
-                else:
-                    _prefetched = True
-
-            inference_task.start()
-            try:
-                # init inference
-                if not _init_inferenced:
-                    success = inference_task.run_init_inference(websocket)
-                    if not success:
-                        raise ValueError("init inferece task failed")
-                    else:
-                        _init_inferenced = True
-                # inference
-                inference_task.run_inference(websocket)
-            finally:
-                inference_task.close()
+            task_worker.run(websocket)
