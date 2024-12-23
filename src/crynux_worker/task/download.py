@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import signal
 import socket
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
@@ -19,6 +20,7 @@ from websockets.sync.connection import Connection as WSConnection
 from crynux_worker.config import Config
 from crynux_worker.log import init as log_init
 from crynux_worker.model import PayloadType, WorkerPayloadMessage, WorkerPhase
+from crynux_worker.model.task import DownloadTaskInput, DownloadTaskResult
 
 from .runner import TaskRunner
 
@@ -39,7 +41,7 @@ class TeeOut(StringIO):
         return False
 
 
-def _prefetch_process(
+def _download_process(
     pipe: Connection,
     task_runner_cls: Type[TaskRunner],
     config: Config,
@@ -50,8 +52,7 @@ def _prefetch_process(
     try:
         prefetch_log_file = os.path.join(config.log.dir, "crynux_worker_prefetch.log")
         with open(prefetch_log_file, mode="a", encoding="utf-8") as f:
-            tee = TeeOut(pipe, f)
-            with redirect_stderr(tee), redirect_stdout(tee):
+            with redirect_stderr(f), redirect_stdout(f):
                 logging.basicConfig(
                     format="[{asctime}] [{levelname:<8}] {name}: {message}",
                     datefmt="%Y-%m-%d %H:%M:%S",
@@ -59,13 +60,44 @@ def _prefetch_process(
                     level=logging.INFO,
                 )
 
-                try:
-                    task_runner.prefetch_models(
-                        sd_config=sd_config, gpt_config=gpt_config
-                    )
-                except Exception:
-                    tb = traceback.format_exc()
-                    pipe.send(("error", tb))
+                stop = False
+
+                def _signal_handler(*args):
+                    nonlocal stop
+                    stop = True
+                    logging.info("try to stop inference process gracefully")
+
+                signal.signal(signal.SIGTERM, _signal_handler)
+
+                while not stop:
+                    try:
+                        if pipe.poll(0):
+                            task_input: DownloadTaskInput = pipe.recv()
+                            try:
+                                task_runner.download_model(
+                                    task_type=task_input.task_type,
+                                    model_type=task_input.model_type,
+                                    model_name=task_input.model.id,
+                                    variant=task_input.model.variant,
+                                    sd_config=sd_config,
+                                    gpt_config=gpt_config
+                                )
+                                res = DownloadTaskResult(
+                                    status="success",
+                                    task_input=task_input
+                                )
+                            except Exception:
+                                tb = traceback.format_exc()
+                                res = DownloadTaskResult(
+                                    status="error",
+                                    traceback=tb,
+                                    task_input=task_input
+                                )
+                                pipe.send(res)
+
+                    except (EOFError, BrokenPipeError):
+                        break
+
     except KeyboardInterrupt:
         pass
 
@@ -114,7 +146,7 @@ class PrefetchTask(object):
         parent_pipe, child_pipe = ctx.Pipe()
 
         prefetch_process = ctx.Process(
-            target=_prefetch_process,
+            target=_download_process,
             args=(child_pipe, self.task_runner_cls, self.config, self.sd_config, self.gpt_config),
         )
         prefetch_process.start()
