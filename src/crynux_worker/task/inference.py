@@ -25,6 +25,7 @@ from crynux_worker.model import (
     WorkerPayloadMessage,
     WorkerPhase,
 )
+from crynux_worker.model.task import InferenceTaskInput, InferenceTaskResult
 from crynux_worker.model_cache import ModelCache
 from .runner import TaskRunner
 
@@ -33,18 +34,15 @@ _logger = logging.getLogger(__name__)
 
 def _inference_one_task(
     task_runner: TaskRunner,
-    task_input: TaskInput,
+    task_input: InferenceTaskInput,
     model_cache: ModelCache,
-    config: Config,
     sd_config: SDConfig,
     gpt_config: GPTConfig,
+    output_dir: str,
 ):
 
     try:
-        output_dir = None
-        if task_input.task_type == TaskType.SD_FT_LORA:
-            output_dir = os.path.join(config.output_dir, task_input.task_id_commitment)
-        results = task_runner.run_inference_task(
+        results = task_runner.inference(
             task_type=task_input.task_type,
             task_args=task_input.task_args,
             model_cache=model_cache,
@@ -76,31 +74,38 @@ def _inference_process(
 
                 stop = False
 
-                def _signal_handle(*args):
+                def _signal_handler(*args):
                     nonlocal stop
                     stop = True
-                    logging.info("try to inference process gracefully")
+                    logging.info("try to stop inference process gracefully")
 
-                signal.signal(signal.SIGTERM, _signal_handle)
+                signal.signal(signal.SIGTERM, _signal_handler)
 
                 while not stop:
                     try:
                         if pipe.poll(0):
-                            task_input: TaskInput = pipe.recv()
+                            task_input: InferenceTaskInput = pipe.recv()
                             try:
-                                data = _inference_one_task(
+                                _inference_one_task(
                                     task_runner=task_runner,
                                     task_input=task_input,
                                     model_cache=model_cache,
-                                    config=config,
                                     sd_config=sd_config,
                                     gpt_config=gpt_config,
+                                    output_dir=task_input.output_dir
                                 )
-                                res = ("success", task_input, data)
+                                res = InferenceTaskResult(
+                                    task_input=task_input,
+                                    status="success"
+                                )
                             except Exception as e:
                                 _logger.exception(e)
                                 tb = traceback.format_exc()
-                                res = ("error", task_input, tb)
+                                res = InferenceTaskResult(
+                                    task_input=task_input,
+                                    status="error",
+                                    traceback=tb
+                                )
 
                             pipe.send(res)
                     except (EOFError, BrokenPipeError):
@@ -204,7 +209,7 @@ class InferenceTask(object):
         }
         task_type = TaskType.SD
         task_input = TaskInput(
-            task_id_commitment=bytes([0 for _ in range(32)]).hex(),
+            task_id_commitment="0x"+bytes([0 for _ in range(32)]).hex(),
             task_name="inference",
             task_type=task_type,
             task_args=json.dumps(sd_inference_args),
@@ -217,14 +222,14 @@ class InferenceTask(object):
         self._parent_pipe.send(task_input)
 
         while True:
-            for key, _ in self._selector.select(0):
+            for key, _ in self._selector.select(0.1):
                 if key.fileobj == self._interrupt_read:
                     self._inference_process.kill()
                     _logger.info("inference task is cancelled")
                     self._selector.unregister(self._interrupt_read)
                     self._interrupt_read.close()
                     return True
-            if self._parent_pipe.poll(timeout=0):
+            if self._parent_pipe.poll(0.1):
                 status, _, data = self._parent_pipe.recv()
                 if status == "error":
                     _logger.info("Initial inference task error")
@@ -263,7 +268,8 @@ class InferenceTask(object):
         try:
             while self._is_inference_process_alive():
                 try:
-                    raw_task_input = websocket.recv(0)
+                    raw_task_input = websocket.recv(0.1)
+                    _logger.debug(f"receive raw task input {raw_task_input}")
                     assert isinstance(raw_task_input, str)
                     if len(raw_task_input) > 0:
                         task_input = TaskInput.model_validate_json(raw_task_input)
@@ -273,16 +279,17 @@ class InferenceTask(object):
                         )
                         self._parent_pipe.send(task_input)
                     websocket.send("task received")
+                    _logger.debug(f"task received")
                 except TimeoutError:
                     pass
 
-                for key, _ in self._selector.select(0):
+                for key, _ in self._selector.select(0.1):
                     if key.fileobj == self._interrupt_read:
                         self._inference_process.terminate()
                         _logger.info("inference task is cancelled")
                         self._selector.unregister(self._interrupt_read)
                         self._interrupt_read.close()
-                if self._parent_pipe.poll(0):
+                if self._parent_pipe.poll(0.1):
                     status, task_input, data = self._parent_pipe.recv()
                     if status == "success":
                         _logger.info(
