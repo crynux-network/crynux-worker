@@ -115,7 +115,7 @@ def _inference_process(
         pass
 
 
-InferenceTaskStatus = Literal["idle", "running", "cancelled", "finished"]
+InferenceTaskStatus = Literal["running", "cancelled", "stopped"]
 
 
 class InferenceTask(object):
@@ -140,7 +140,7 @@ class InferenceTask(object):
         self._interrupt_read = interrupt_read
         self._interrupt_write = interrupt_write
 
-        self._status: InferenceTaskStatus = "idle"
+        self._status: InferenceTaskStatus = "stopped"
 
         self._selector = DefaultSelector()
         self._selector.register(self._interrupt_read, EVENT_READ)
@@ -155,13 +155,13 @@ class InferenceTask(object):
     def start(self):
         if self._status == "cancelled":
             return
-        assert self._status == "idle"
+        assert self._status == "stopped"
         self._inference_process.start()
         self._monitor_thread.start()
         self._status = "running"
 
     def cancel(self):
-        if self._status != "cancelled" and self._status != "finished":
+        if self._status != "cancelled" and self._status != "stopped":
             _logger.info("cancel inference task")
             self._status = "cancelled"
             self._interrupt_write.send(b"\0")
@@ -172,7 +172,7 @@ class InferenceTask(object):
             self._monitor_thread.join()
         self._parent_pipe.close()
         self._selector.close()
-        self._status = "finished"
+        self._status = "stopped"
 
     def _is_inference_process_alive(self):
         try:
