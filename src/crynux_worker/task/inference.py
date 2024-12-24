@@ -4,6 +4,7 @@ import signal
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from multiprocessing.connection import Connection
+from queue import Empty, Queue
 from typing import Type
 
 from gpt_task.config import Config as GPTConfig
@@ -11,10 +12,11 @@ from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
-from crynux_worker.model.task import InferenceTaskInput, InferenceTaskResult
+from crynux_worker.model.task import InferenceTaskInput, TaskResult
 from crynux_worker.model_cache import ModelCache
 
 from .runner import TaskRunner
+from .model_mutex import ModelMutex
 
 _logger = logging.getLogger(__name__)
 
@@ -43,8 +45,14 @@ def _inference_one_task(
         raise ValueError("Task args invalid") from e
 
 
-def inference_process(
-    pipe: Connection, task_runner_cls: Type[TaskRunner], config: Config, sd_config: SDConfig, gpt_config: GPTConfig
+def inference_worker(
+    task_input_queue: Queue[InferenceTaskInput],
+    result_queue: Queue[TaskResult],
+    model_mutex: ModelMutex,
+    task_runner_cls: Type[TaskRunner],
+    config: Config,
+    sd_config: SDConfig,
+    gpt_config: GPTConfig,
 ):
     try:
         task_runner = task_runner_cls()
@@ -70,8 +78,11 @@ def inference_process(
 
                 while not stop:
                     try:
-                        if pipe.poll(0):
-                            task_input: InferenceTaskInput = pipe.recv()
+                        task_input: InferenceTaskInput = task_input_queue.get(
+                            timeout=0.1
+                        )
+                        model_id = task_input.model_id
+                        with model_mutex.lock(model_id):
                             try:
                                 _inference_one_task(
                                     task_runner=task_runner,
@@ -79,24 +90,26 @@ def inference_process(
                                     model_cache=model_cache,
                                     sd_config=sd_config,
                                     gpt_config=gpt_config,
-                                    output_dir=task_input.output_dir
+                                    output_dir=task_input.output_dir,
                                 )
-                                res = InferenceTaskResult(
-                                    task_input=task_input,
-                                    status="success"
+                                res = TaskResult(
+                                    task_name="inference",
+                                    status="success",
+                                    task_id_commitment=task_input.task_id_commitment,
                                 )
                             except Exception as e:
                                 _logger.exception(e)
                                 tb = traceback.format_exc()
-                                res = InferenceTaskResult(
-                                    task_input=task_input,
+                                res = TaskResult(
+                                    task_name="inference",
                                     status="error",
-                                    traceback=tb
+                                    task_id_commitment=task_input.task_id_commitment,
+                                    traceback=tb,
                                 )
 
-                            pipe.send(res)
-                    except (EOFError, BrokenPipeError):
-                        break
-                logging.info("inference process exit normally")
+                        result_queue.put(res)
+                    except Empty:
+                        pass
+                _logger.info("inference process exit normally")
     except KeyboardInterrupt:
         pass

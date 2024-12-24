@@ -25,23 +25,18 @@ class DownloadTaskInput(BaseModel):
 class InferenceTaskInput(BaseModel):
     task_type: TaskType
     task_id_commitment: str
+    model_id: str
     task_args: str
     output_dir: str
 
 
 class TaskInput(BaseModel):
-    task_name: str
+    task_name: Literal["inference", "download"]
     task: DownloadTaskInput | InferenceTaskInput
 
 
 class TaskResult(BaseModel):
+    task_name: Literal["inference", "download"]
+    task_id_commitment: str
     status: Literal["success", "error"]
     traceback: str | None = None
-
-
-class DownloadTaskResult(TaskResult):
-    task_input: DownloadTaskInput
-
-
-class InferenceTaskResult(TaskResult):
-    task_input: InferenceTaskInput

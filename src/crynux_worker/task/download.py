@@ -5,35 +5,25 @@ import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO, TextIOBase
 from multiprocessing.connection import Connection
+from queue import Empty, Queue
 from typing import Type
 
 from gpt_task.config import Config as GPTConfig
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
-from crynux_worker.model.task import DownloadTaskInput, DownloadTaskResult
+from crynux_worker.model.task import DownloadTaskInput, TaskResult
 
 from .runner import TaskRunner
+from .model_mutex import ModelMutex
 
 _logger = logging.getLogger(__name__)
 
 
-class TeeOut(StringIO):
-    def __init__(self, pipe: Connection, file: TextIOBase):
-        self.pipe = pipe
-        self.file = file
-
-    def write(self, s: str) -> int:
-        self.pipe.send(s.strip())
-        self.file.write(s)
-        return len(s)
-
-    def isatty(self):
-        return False
-
-
-def download_process(
-    pipe: Connection,
+def download_worker(
+    task_input_queue: Queue[DownloadTaskInput],
+    result_queue: Queue[TaskResult],
+    model_mutex: ModelMutex,
     task_runner_cls: Type[TaskRunner],
     config: Config,
     sd_config: SDConfig,
@@ -62,8 +52,9 @@ def download_process(
 
                 while not stop:
                     try:
-                        if pipe.poll(0):
-                            task_input: DownloadTaskInput = pipe.recv()
+                        task_input = task_input_queue.get(timeout=0.1)
+                        model_id = task_input.model.id
+                        with model_mutex.lock(model_id):
                             try:
                                 task_runner.download_model(
                                     task_type=task_input.task_type,
@@ -73,18 +64,24 @@ def download_process(
                                     sd_config=sd_config,
                                     gpt_config=gpt_config,
                                 )
-                                res = DownloadTaskResult(
-                                    status="success", task_input=task_input
+                                res = TaskResult(
+                                    task_name="download",
+                                    status="success",
+                                    task_id_commitment=task_input.task_id_commitment,
                                 )
                             except Exception:
                                 tb = traceback.format_exc()
-                                res = DownloadTaskResult(
-                                    status="error", traceback=tb, task_input=task_input
+                                res = TaskResult(
+                                    task_name="download",
+                                    status="error",
+                                    task_id_commitment=task_input.task_id_commitment,
+                                    traceback=tb,
                                 )
-                                pipe.send(res)
+                        result_queue.put(res)
 
-                    except (EOFError, BrokenPipeError):
-                        break
+                    except Empty:
+                        pass
+                _logger.info("download process exit normally")
 
     except KeyboardInterrupt:
         pass

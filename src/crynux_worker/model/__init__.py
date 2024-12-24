@@ -1,4 +1,4 @@
-from .task import TaskInput, TaskType, InferenceTaskInput, DownloadTaskInput, InferenceTaskResult, DownloadTaskResult
+from .task import TaskInput, TaskType, InferenceTaskInput, DownloadTaskInput, TaskResult
 from .resp import TaskSuccessResponse, TaskErrorResponse
 
 __all__ = [
@@ -6,8 +6,7 @@ __all__ = [
     "TaskType",
     "InferenceTaskInput",
     "DownloadTaskInput",
-    "InferenceTaskResult",
-    "DownloadTaskResult",
+    "TaskResult",
     "TaskSuccessResponse",
     "TaskErrorResponse"
 ]
