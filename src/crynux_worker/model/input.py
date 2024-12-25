@@ -1,7 +1,7 @@
 from enum import IntEnum
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TaskType(IntEnum):
@@ -16,6 +16,7 @@ class ModelConfig(BaseModel):
 
 
 class DownloadTaskInput(BaseModel):
+    task_name: Literal["download"]
     task_type: TaskType
     task_id_commitment: str
     model_type: Literal["base", "vae", "controlnet"]
@@ -23,6 +24,7 @@ class DownloadTaskInput(BaseModel):
 
 
 class InferenceTaskInput(BaseModel):
+    task_name: Literal["inference"]
     task_type: TaskType
     task_id_commitment: str
     model_id: str
@@ -31,12 +33,4 @@ class InferenceTaskInput(BaseModel):
 
 
 class TaskInput(BaseModel):
-    task_name: Literal["inference", "download"]
-    task: DownloadTaskInput | InferenceTaskInput
-
-
-class TaskResult(BaseModel):
-    task_name: Literal["inference", "download"]
-    task_id_commitment: str
-    status: Literal["success", "error"]
-    traceback: str | None = None
+    task: DownloadTaskInput | InferenceTaskInput = Field(discriminator="task_name")

@@ -3,8 +3,7 @@ import os
 import signal
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO, TextIOBase
-from multiprocessing.connection import Connection
+from datetime import datetime
 from queue import Empty, Queue
 from typing import Type
 
@@ -12,10 +11,11 @@ from gpt_task.config import Config as GPTConfig
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
-from crynux_worker.model.task import DownloadTaskInput, TaskResult
+from crynux_worker.model import (DownloadTaskInput, ErrorResult, SuccessResult,
+                                 TaskResult)
 
-from .runner import TaskRunner
 from .model_mutex import ModelMutex
+from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
 
@@ -56,6 +56,9 @@ def download_worker(
                         model_id = task_input.model.id
                         with model_mutex.lock(model_id):
                             try:
+                                _logger.info(
+                                    f"Download task {task_input.task_id_commitment} model {task_input.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                )
                                 task_runner.download_model(
                                     task_type=task_input.task_type,
                                     model_type=task_input.model_type,
@@ -66,16 +69,15 @@ def download_worker(
                                 )
                                 res = TaskResult(
                                     task_name="download",
-                                    status="success",
                                     task_id_commitment=task_input.task_id_commitment,
+                                    result=SuccessResult(status="success"),
                                 )
                             except Exception:
                                 tb = traceback.format_exc()
                                 res = TaskResult(
                                     task_name="download",
-                                    status="error",
                                     task_id_commitment=task_input.task_id_commitment,
-                                    traceback=tb,
+                                    result=ErrorResult(status="error", traceback=tb),
                                 )
                         result_queue.put(res)
 

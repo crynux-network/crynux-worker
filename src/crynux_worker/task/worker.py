@@ -1,6 +1,5 @@
 import concurrent.futures
 import logging
-from datetime import datetime
 from multiprocessing import get_context
 from queue import Empty, Queue
 from typing import Literal, Type
@@ -11,13 +10,12 @@ from websockets.sync.connection import Connection as WSConnection
 
 from crynux_worker.config import Config
 from crynux_worker.model import (DownloadTaskInput, InferenceTaskInput,
-                                 TaskErrorResponse, TaskInput, TaskResult,
-                                 TaskSuccessResponse)
+                                 TaskInput, TaskResult)
 
 from .download import download_worker
 from .inference import inference_worker
-from .runner import TaskRunner
 from .model_mutex import ModelMutex
+from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
 
@@ -62,19 +60,11 @@ class TaskWorker(object):
                 if len(message) > 0:
                     task_input = TaskInput.model_validate_json(message)
 
-                    if task_input.task_name == "inference":
+                    if task_input.task.task_name == "inference":
                         task = task_input.task
-                        assert isinstance(task, InferenceTaskInput)
-                        _logger.info(
-                            f"Inference task {task.task_id_commitment} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
                         self._inference_task_queue.put(task)
-                    elif task_input.task_name == "download":
+                    elif task_input.task.task_name == "download":
                         task = task_input.task
-                        assert isinstance(task, DownloadTaskInput)
-                        _logger.info(
-                            f"Download task {task.task_id_commitment} model {task.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
                         self._download_task_queue.put(task)
             except TimeoutError:
                 pass
@@ -83,20 +73,7 @@ class TaskWorker(object):
         while self._status == "running":
             try:
                 res = self._result_queue.get(timeout=0.1)
-                task_name = res.task_name
-                task_id_commitment = res.task_id_commitment
-                if res.status == "success":
-                    resp = TaskSuccessResponse(
-                        task_name=task_name, task_id_commitment=task_id_commitment
-                    )
-                else:
-                    assert res.traceback is not None
-                    resp = TaskErrorResponse(
-                        task_name=task_name,
-                        task_id_commitment=task_id_commitment,
-                        traceback=res.traceback,
-                    )
-                ws.send(resp.model_dump_json())
+                ws.send(res.model_dump_json())
             except Empty:
                 pass
 

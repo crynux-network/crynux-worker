@@ -3,7 +3,7 @@ import os
 import signal
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from multiprocessing.connection import Connection
+from datetime import datetime
 from queue import Empty, Queue
 from typing import Type
 
@@ -12,11 +12,12 @@ from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
-from crynux_worker.model.task import InferenceTaskInput, TaskResult
+from crynux_worker.model import (ErrorResult, InferenceTaskInput,
+                                 SuccessResult, TaskResult)
 from crynux_worker.model_cache import ModelCache
 
-from .runner import TaskRunner
 from .model_mutex import ModelMutex
+from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
 
@@ -84,6 +85,9 @@ def inference_worker(
                         model_id = task_input.model_id
                         with model_mutex.lock(model_id):
                             try:
+                                _logger.info(
+                                    f"Inference task {task_input.task_id_commitment} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                )
                                 _inference_one_task(
                                     task_runner=task_runner,
                                     task_input=task_input,
@@ -94,17 +98,16 @@ def inference_worker(
                                 )
                                 res = TaskResult(
                                     task_name="inference",
-                                    status="success",
                                     task_id_commitment=task_input.task_id_commitment,
+                                    result=SuccessResult(status="success"),
                                 )
                             except Exception as e:
                                 _logger.exception(e)
                                 tb = traceback.format_exc()
                                 res = TaskResult(
                                     task_name="inference",
-                                    status="error",
                                     task_id_commitment=task_input.task_id_commitment,
-                                    traceback=tb,
+                                    result=ErrorResult(status="error", traceback=tb),
                                 )
 
                         result_queue.put(res)
