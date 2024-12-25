@@ -19,7 +19,7 @@ class DownloadTaskInput(BaseModel):
     task_name: Literal["download"]
     task_type: TaskType
     task_id_commitment: str
-    model_type: Literal["base", "vae", "controlnet"]
+    model_type: Literal["base", "lora", "controlnet"]
     model: ModelConfig
 
 

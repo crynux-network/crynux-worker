@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 from typing import Literal
@@ -10,12 +11,14 @@ from crynux_worker.model import TaskType
 from crynux_worker.model_cache import ModelCache
 
 
+_logger = logging.getLogger(__name__)
+
 class TaskRunner(ABC):
     @abstractmethod
     def download_model(
         self,
         task_type: TaskType,
-        model_type: Literal["base", "vae", "controlnet"],
+        model_type: Literal["base", "lora", "controlnet"],
         model_name: str,
         variant: str | None,
         sd_config: SDConfig,
@@ -38,7 +41,7 @@ class HFTaskRunner(TaskRunner):
     def download_model(
         self,
         task_type: TaskType,
-        model_type: Literal["base"] | Literal["vae"] | Literal["controlnet"],
+        model_type: Literal["base", "lora", "controlnet"],
         model_name: str,
         variant: str | None,
         sd_config: SDConfig,
@@ -53,11 +56,15 @@ class HFTaskRunner(TaskRunner):
                 hf_cache_dir = gpt_config.data_dir.models.huggingface
 
             download_model(model_name, hf_cache_dir, gpt_config.proxy)
+            _logger.info(f"Successfully download gpt base model: {model_name}")
         else:
-            from diffusers import AutoencoderKL, ControlNetModel
+            from diffusers import ControlNetModel
             from diffusers.utils import SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME
-            from sd_task.download_model import (check_and_download_hf_model,
-                                                check_and_download_hf_pipeline)
+            from sd_task.download_model import (
+                check_and_download_hf_model,
+                check_and_download_hf_pipeline,
+                check_and_download_model_by_name,
+            )
 
             if model_type == "base":
                 check_and_download_hf_pipeline(
@@ -66,6 +73,7 @@ class HFTaskRunner(TaskRunner):
                     hf_model_cache_dir=sd_config.data_dir.models.huggingface,
                     proxy=sd_config.proxy,
                 )
+                _logger.info(f"Successfully download sd base model: {model_name}")
             elif model_type == "controlnet":
                 check_and_download_hf_model(
                     model_name,
@@ -76,16 +84,19 @@ class HFTaskRunner(TaskRunner):
                     sd_config.proxy,
                     variant,
                 )
-            elif model_type == "vae":
-                check_and_download_hf_model(
+                _logger.info(f"Successfully download sd controlnet model: {model_name}")
+            elif model_type == "lora":
+                check_and_download_model_by_name(
                     model_name,
-                    AutoencoderKL.load_config,
-                    [SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME],
-                    False,
-                    sd_config.data_dir.models.huggingface,
-                    sd_config.proxy,
-                    variant,
+                    None,
+                    [],
+                    True,
+                    hf_model_cache_dir=sd_config.data_dir.models.huggingface,
+                    external_model_cache_dir=sd_config.data_dir.models.external,
+                    proxy=sd_config.proxy,
+                    variant=variant,
                 )
+                _logger.info(f"Successfully download sd lora model: {model_name}")
 
     def inference(
         self,
@@ -127,13 +138,13 @@ class MockTaskRunner(TaskRunner):
     def download_model(
         self,
         task_type: TaskType,
-        model_type: Literal["base"] | Literal["vae"] | Literal["controlnet"],
+        model_type: Literal["base", "lora", "controlnet"],
         model_name: str,
         variant: str | None,
         sd_config: SDConfig,
         gpt_config: GPTConfig,
     ):
-        pass
+        _logger.info(f"Successfully download {task_type} {model_type} model: {model_name}")
 
     def inference(
         self,
