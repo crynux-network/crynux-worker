@@ -12,8 +12,12 @@ from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
-from crynux_worker.model import (ErrorResult, InferenceTaskInput,
-                                 SuccessResult, TaskResult)
+from crynux_worker.model import (
+    ErrorResult,
+    InferenceTaskInput,
+    SuccessResult,
+    TaskResult,
+)
 from crynux_worker.model_cache import ModelCache
 
 from .model_mutex import ModelMutex
@@ -82,11 +86,11 @@ def inference_worker(
                         task_input: InferenceTaskInput = task_input_queue.get(
                             timeout=0.1
                         )
-                        model_id = task_input.model_id
-                        with model_mutex.lock(model_id):
+                        model_ids = [model.to_model_id() for model in task_input.models]
+                        with model_mutex.lock_models(model_ids):
                             try:
                                 _logger.info(
-                                    f"Inference task {task_input.task_id_commitment} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                    f"Inference task {task_input.task_id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                                 )
                                 _inference_one_task(
                                     task_runner=task_runner,
@@ -98,7 +102,7 @@ def inference_worker(
                                 )
                                 res = TaskResult(
                                     task_name="inference",
-                                    task_id_commitment=task_input.task_id_commitment,
+                                    task_id_commitment=task_input.task_id,
                                     result=SuccessResult(status="success"),
                                 )
                             except Exception as e:
@@ -106,7 +110,7 @@ def inference_worker(
                                 tb = traceback.format_exc()
                                 res = TaskResult(
                                     task_name="inference",
-                                    task_id_commitment=task_input.task_id_commitment,
+                                    task_id_commitment=task_input.task_id,
                                     result=ErrorResult(status="error", traceback=tb),
                                 )
 

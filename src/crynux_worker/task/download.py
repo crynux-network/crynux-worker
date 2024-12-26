@@ -11,8 +11,12 @@ from gpt_task.config import Config as GPTConfig
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
-from crynux_worker.model import (DownloadTaskInput, ErrorResult, SuccessResult,
-                                 TaskResult)
+from crynux_worker.model import (
+    DownloadTaskInput,
+    ErrorResult,
+    SuccessResult,
+    TaskResult,
+)
 
 from .model_mutex import ModelMutex
 from .runner import TaskRunner
@@ -53,15 +57,15 @@ def download_worker(
                 while not stop:
                     try:
                         task_input = task_input_queue.get(timeout=0.1)
-                        model_id = task_input.model.id
-                        with model_mutex.lock(model_id):
+                        model_id = task_input.model.to_model_id()
+                        with model_mutex.lock_model(model_id):
                             try:
                                 _logger.info(
-                                    f"Download task {task_input.task_id_commitment} model {task_input.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                                    f"Download task {task_input.task_id} model {task_input.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                                 )
                                 task_runner.download_model(
                                     task_type=task_input.task_type,
-                                    model_type=task_input.model_type,
+                                    model_type=task_input.model.type,
                                     model_name=task_input.model.id,
                                     variant=task_input.model.variant,
                                     sd_config=sd_config,
@@ -69,14 +73,14 @@ def download_worker(
                                 )
                                 res = TaskResult(
                                     task_name="download",
-                                    task_id_commitment=task_input.task_id_commitment,
+                                    task_id_commitment=task_input.task_id,
                                     result=SuccessResult(status="success"),
                                 )
                             except Exception:
                                 tb = traceback.format_exc()
                                 res = TaskResult(
                                     task_name="download",
-                                    task_id_commitment=task_input.task_id_commitment,
+                                    task_id_commitment=task_input.task_id,
                                     result=ErrorResult(status="error", traceback=tb),
                                 )
                         result_queue.put(res)
