@@ -82,8 +82,6 @@ class TaskWorker(object):
             return
         assert self._status == "stopped"
 
-        self._mp_manager.start()
-
         inference_process = self._mp_ctx.Process(
             target=inference_worker,
             args=(
