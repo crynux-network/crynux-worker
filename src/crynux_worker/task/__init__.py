@@ -1,4 +1,9 @@
-from .inference import InferenceTask
-from .prefetch import PrefetchTask
+from .runner import TaskRunner, HFTaskRunner, MockTaskRunner
+from .worker import TaskWorker
 
-__all__ = ["PrefetchTask", "InferenceTask"]
+__all__ = [
+    "TaskRunner",
+    "HFTaskRunner",
+    "MockTaskRunner",
+    "TaskWorker"
+]

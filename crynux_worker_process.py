@@ -163,7 +163,7 @@ def _get_patch_contents(
                     index = versions.index(current_version)
                     versions = versions[index + 1 :]
                 except ValueError:
-                    pass
+                    return {}
 
             for version in versions:
                 major = Version(version).major

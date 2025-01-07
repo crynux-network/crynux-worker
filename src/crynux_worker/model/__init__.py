@@ -1,10 +1,12 @@
-from .task import TaskInput, TaskType
-from .worker import PayloadType, WorkerPayloadMessage, WorkerPhase
+from .result import ErrorResult, SuccessResult, TaskResult
+from .input import DownloadTaskInput, InferenceTaskInput, TaskInput, TaskType
 
 __all__ = [
     "TaskInput",
     "TaskType",
-    "PayloadType",
-    "WorkerPhase",
-    "WorkerPayloadMessage",
+    "InferenceTaskInput",
+    "DownloadTaskInput",
+    "TaskResult",
+    "SuccessResult",
+    "ErrorResult",
 ]
