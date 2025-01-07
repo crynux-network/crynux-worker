@@ -10,7 +10,7 @@ import websockets.sync.client
 from crynux_worker import version
 from crynux_worker.config import (Config, generate_gpt_config,
                                   generate_sd_config, get_config)
-from crynux_worker.task import HFTaskRunner, MockTaskRunner, TaskWorker
+from crynux_worker.task import HFTaskRunner, TaskWorker
 
 _logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def worker(config: Config | None = None):
     gpt_config = generate_gpt_config(config)
 
     task_worker = TaskWorker(
-        task_runner_cls=MockTaskRunner,
+        task_runner_cls=HFTaskRunner,
         config=config,
         sd_config=sd_config,
         gpt_config=gpt_config
