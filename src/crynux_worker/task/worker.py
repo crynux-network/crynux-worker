@@ -22,6 +22,11 @@ _logger = logging.getLogger(__name__)
 TaskStatus = Literal["running", "cancelled", "stopped"]
 
 
+class TaskWorkerRunningError(Exception):
+    def __str__(self):
+        return "Task worker running error"
+
+
 class TaskWorker(object):
     def __init__(
         self,
@@ -36,14 +41,6 @@ class TaskWorker(object):
         self._gpt_config = gpt_config
 
         self._mp_ctx = get_context("spawn")
-        self._mp_manager = self._mp_ctx.Manager()
-        self._inference_task_queue: Queue[InferenceTaskInput] = self._mp_manager.Queue()
-        self._download_task_queue: Queue[DownloadTaskInput] = self._mp_manager.Queue()
-        self._result_queue: Queue[TaskResult] = self._mp_manager.Queue()
-        self._model_mutex = ModelMutex(self._mp_manager)
-
-        self._condition = self._mp_manager.Condition()
-        self._using_models = self._mp_manager.dict()
 
         self._status: TaskStatus = "stopped"
 
@@ -52,7 +49,7 @@ class TaskWorker(object):
             _logger.info("cancel inference task")
             self._status = "cancelled"
 
-    def task_producer(self, ws: WSConnection):
+    def task_producer(self, ws: WSConnection, inference_task_queue: Queue[InferenceTaskInput], download_task_queue: Queue[DownloadTaskInput]):
         while self._status == "running":
             try:
                 message = ws.recv(0.1)
@@ -62,100 +59,114 @@ class TaskWorker(object):
 
                     if task_input.task.task_name == "inference":
                         task = task_input.task
-                        self._inference_task_queue.put(task)
+                        inference_task_queue.put(task)
                     elif task_input.task.task_name == "download":
                         task = task_input.task
-                        self._download_task_queue.put(task)
+                        download_task_queue.put(task)
             except TimeoutError:
                 pass
+            except Exception as e:
+                _logger.error("task producer running error")
+                _logger.exception(e)
 
-    def result_consumer(self, ws: WSConnection):
+    def result_consumer(self, ws: WSConnection, result_queue: Queue[TaskResult]):
         while self._status == "running":
             try:
-                res = self._result_queue.get(timeout=0.1)
+                res = result_queue.get(timeout=0.1)
                 ws.send(res.model_dump_json())
             except Empty:
                 pass
+            except Exception as e:
+                _logger.error("result consumer running error")
+                _logger.exception(e)
 
     def run(self, ws: WSConnection):
         if self._status == "cancelled":
             return
         assert self._status == "stopped"
 
-        inference_process = self._mp_ctx.Process(
-            target=inference_worker,
-            args=(
-                self._inference_task_queue,
-                self._result_queue,
-                self._model_mutex,
-                self._task_runner_cls,
-                self._config,
-                self._sd_config,
-                self._gpt_config,
-            ),
-        )
-        inference_process.start()
-        download_process = self._mp_ctx.Process(
-            target=download_worker,
-            args=(
-                self._download_task_queue,
-                self._result_queue,
-                self._model_mutex,
-                self._task_runner_cls,
-                self._config,
-                self._sd_config,
-                self._gpt_config,
-            ),
-        )
-        download_process.start()
+        with self._mp_ctx.Manager() as manager:
+            inference_task_queue = manager.Queue()
+            download_task_queue = manager.Queue()
+            result_queue = manager.Queue()
+            model_mutex = ModelMutex(manager)
 
-        self._status = "running"
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-        try:
-            task_producer_fut = pool.submit(self.task_producer, ws)
-            result_consumer_fut = pool.submit(self.result_consumer, ws)
-            done, _ = concurrent.futures.wait(
-                [task_producer_fut, result_consumer_fut],
-                return_when=concurrent.futures.FIRST_EXCEPTION,
+
+            inference_process = self._mp_ctx.Process(
+                target=inference_worker,
+                args=(
+                    inference_task_queue,
+                    result_queue,
+                    model_mutex,
+                    self._task_runner_cls,
+                    self._config,
+                    self._sd_config,
+                    self._gpt_config,
+                ),
             )
-            has_error = False
-            for fut in done:
-                exc = fut.exception()
-                if exc is not None:
-                    _logger.error("Worker running error")
-                    _logger.exception(exc)
-                    has_error = True
+            inference_process.start()
+            download_process = self._mp_ctx.Process(
+                target=download_worker,
+                args=(
+                    download_task_queue,
+                    result_queue,
+                    model_mutex,
+                    self._task_runner_cls,
+                    self._config,
+                    self._sd_config,
+                    self._gpt_config,
+                ),
+            )
+            download_process.start()
 
-            if has_error:
+            self._status = "running"
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            try:
+                task_producer_fut = pool.submit(self.task_producer, ws, inference_task_queue, download_task_queue)
+                result_consumer_fut = pool.submit(self.result_consumer, ws, result_queue)
+                done, _ = concurrent.futures.wait(
+                    [task_producer_fut, result_consumer_fut],
+                    return_when=concurrent.futures.FIRST_EXCEPTION,
+                )
+                has_error = False
+                running_error: BaseException | None = None
+                for fut in done:
+                    exc = fut.exception()
+                    if exc is not None:
+                        has_error = True
+                        running_error = exc
+
+                if has_error:
+                    if inference_process.is_alive():
+                        inference_process.kill()
+                        _logger.info("close inference task forcely")
+                    if download_process.is_alive():
+                        download_process.kill()
+                        _logger.info("close download task forcely")
+
+                    raise TaskWorkerRunningError from running_error
+                else:
+                    if inference_process.is_alive():
+                        inference_process.terminate()
+                        _logger.info("close inference task gracefully")
+                    if download_process.is_alive():
+                        download_process.terminate()
+                        _logger.info("close download task gracefully")
+            except TaskWorkerRunningError:
+                raise
+            except Exception as e:
+                _logger.error("Worker unexpected error")
+                _logger.exception(e)
                 if inference_process.is_alive():
                     inference_process.kill()
                     _logger.info("close inference task forcely")
                 if download_process.is_alive():
                     download_process.kill()
-                    _logger.info("close download task forcely")
-            else:
-                if inference_process.is_alive():
-                    inference_process.terminate()
-                    _logger.info("close inference task gracefully")
-                if download_process.is_alive():
-                    download_process.terminate()
-                    _logger.info("close download task gracefully")
-
-        except Exception as e:
-            _logger.error("Worker unexpected error")
-            _logger.exception(e)
-            if inference_process.is_alive():
-                inference_process.kill()
-                _logger.info("close inference task forcely")
-            if download_process.is_alive():
-                download_process.kill()
-                _logger.info("close inference task forcely")
-        finally:
-            self._status = "stopped"
-            pool.shutdown(wait=True, cancel_futures=True)
-            inference_process.join()
-            _logger.info("inference task process is joined")
-            download_process.join()
-            _logger.info("download task process is joined")
-
-            self._mp_manager.shutdown()
+                    _logger.info("close inference task forcely")
+            finally:
+                self._status = "stopped"
+                pool.shutdown(wait=True, cancel_futures=True)
+                inference_process.join()
+                _logger.info("inference task process is joined")
+                download_process.join()
+                _logger.info("download task process is joined")
