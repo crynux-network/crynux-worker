@@ -59,6 +59,8 @@ class Config(BaseSettings):
     worker_url: str = "https://dy.relay.crynux.ai/v1/worker"
     output_dir: str = "results"
 
+    pid_file: str = "crynux_worker.pid"
+
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
         yaml_file=os.getenv("CRYNUX_WORKER_CONFIG", "config.yml"),

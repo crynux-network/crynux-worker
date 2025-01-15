@@ -213,6 +213,11 @@ if __name__ == "__main__":
     mp.freeze_support()
 
     cfg = get_config()
+
+    with open(cfg.pid_file, mode="w", encoding="utf-8") as f:
+        pid = os.getpid()
+        f.write(str(pid))
+
     proxy = cfg.proxy
 
     patch_url = os.environ.get(
@@ -223,6 +228,7 @@ if __name__ == "__main__":
     platform_name = _get_platform()
 
     ctx = mp.get_context("spawn")
+    worker_process = ctx.Process(target=_worker)
 
     def _is_worker_process_alive():
         try:
@@ -241,10 +247,9 @@ if __name__ == "__main__":
                     apply_patch(patch_content)
                 _logger.info(f"update worker to version {remote_version}")
 
-        worker_process = ctx.Process(target=_worker)
         worker_process.start()
 
-        while True:
+        while _is_worker_process_alive():
             version = get_version(ctx)
             version_patches = _get_patch_contents(
                 patch_url, version, platform_name, proxy=proxy
@@ -263,7 +268,11 @@ if __name__ == "__main__":
 
             time.sleep(60)
     except KeyboardInterrupt:
+        pass
+    finally:
         if _is_worker_process_alive():
             worker_process.kill()
-            worker_process.join()
-            worker_process.close()
+        worker_process.join()
+        worker_process.close()
+        if os.path.exists(cfg.pid_file):
+            os.remove(cfg.pid_file)

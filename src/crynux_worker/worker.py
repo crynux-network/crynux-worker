@@ -10,7 +10,7 @@ import websockets.sync.client
 from crynux_worker import version
 from crynux_worker.config import (Config, generate_gpt_config,
                                   generate_sd_config, get_config)
-from crynux_worker.task import HFTaskRunner, TaskWorker
+from crynux_worker.task import HFTaskRunner, TaskWorker, TaskWorkerRunningError
 
 _logger = logging.getLogger(__name__)
 
@@ -130,17 +130,25 @@ def worker(config: Config | None = None):
     signal.signal(signal.SIGTERM, _signal_handle)
 
     while not _stop:
-        with websockets.sync.client.connect(
-            config.node_url
-        ) as websocket, register_worker(_version, config.worker_url, config.proxy):
-            version_msg = {"version": _version}
-            websocket.send(json.dumps(version_msg))
-            raw_init_msg = websocket.recv()
-            assert isinstance(raw_init_msg, str)
-            init_msg = json.loads(raw_init_msg)
-            assert "worker_id" in init_msg
-            worker_id = init_msg["worker_id"]
+        try:
+            with websockets.sync.client.connect(
+                config.node_url
+            ) as websocket, register_worker(_version, config.worker_url, config.proxy):
+                version_msg = {"version": _version}
+                websocket.send(json.dumps(version_msg))
+                raw_init_msg = websocket.recv()
+                assert isinstance(raw_init_msg, str)
+                init_msg = json.loads(raw_init_msg)
+                assert "worker_id" in init_msg
+                worker_id = init_msg["worker_id"]
 
-            _logger.info(f"Connected, worker id {worker_id}")
+                _logger.info(f"Connected, worker id {worker_id}")
 
-            task_worker.run(websocket)
+                task_worker.run(websocket)
+        except ConnectionRefusedError as e:
+            _logger.exception(e)
+            _logger.error("Cannot connect to server, worker closed")
+            return
+        except TaskWorkerRunningError:
+            _logger.error("Task worker running error, restarting")
+
