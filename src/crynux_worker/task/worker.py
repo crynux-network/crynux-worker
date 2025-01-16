@@ -68,6 +68,7 @@ class TaskWorker(object):
             except Exception as e:
                 _logger.error("task producer running error")
                 _logger.exception(e)
+                raise e
 
     def result_consumer(self, ws: WSConnection, result_queue: Queue[TaskResult]):
         while self._status == "running":
@@ -79,6 +80,7 @@ class TaskWorker(object):
             except Exception as e:
                 _logger.error("result consumer running error")
                 _logger.exception(e)
+                raise e
 
     def run(self, ws: WSConnection):
         if self._status == "cancelled":

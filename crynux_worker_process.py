@@ -249,24 +249,28 @@ if __name__ == "__main__":
 
         worker_process.start()
 
+        sleep_time = 0
         while _is_worker_process_alive():
-            version = get_version(ctx)
-            version_patches = _get_patch_contents(
-                patch_url, version, platform_name, proxy=proxy
-            )
-            if len(version_patches) > 0:
-                for remote_version, patch_content in version_patches.items():
-                    with DelayedKeyboardInterrupt():
-                        apply_patch(patch_content)
-                    _logger.info(f"update worker to version {remote_version}")
+            if sleep_time == 60:
+                sleep_time = 0
+                version = get_version(ctx)
+                version_patches = _get_patch_contents(
+                    patch_url, version, platform_name, proxy=proxy
+                )
+                if len(version_patches) > 0:
+                    for remote_version, patch_content in version_patches.items():
+                        with DelayedKeyboardInterrupt():
+                            apply_patch(patch_content)
+                        _logger.info(f"update worker to version {remote_version}")
 
-                worker_process.terminate()
-                worker_process.join()
-                worker_process.close()
-                worker_process = ctx.Process(target=_worker)
-                worker_process.start()
+                    worker_process.terminate()
+                    worker_process.join()
+                    worker_process.close()
+                    worker_process = ctx.Process(target=_worker)
+                    worker_process.start()
 
-            time.sleep(60)
+            time.sleep(1)
+            sleep_time += 1
     except KeyboardInterrupt:
         pass
     finally:
