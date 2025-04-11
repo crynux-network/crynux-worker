@@ -1,0 +1,25 @@
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/__init__.py crynux_worker_process/_internal_new/crynux_worker/__init__.py
+--- crynux_worker_process/_internal/crynux_worker/__init__.py	2025-04-11 18:04:07.440007049 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/__init__.py	2025-04-11 18:02:16.095584975 +0800
+@@ -1,4 +1,4 @@
+-__version__ = "2.5.0"
++__version__ = "2.5.1"
+ 
+ def version():
+     return __version__
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/model_cache.py crynux_worker_process/_internal_new/crynux_worker/model_cache.py
+--- crynux_worker_process/_internal/crynux_worker/model_cache.py	2025-04-11 18:04:07.440007049 +0800
++++ crynux_worker_process/_internal_new/crynux_worker/model_cache.py	2025-04-11 18:02:16.095584975 +0800
+@@ -35,11 +35,11 @@
+         if self.key is None or self.key != key:
+             self.value = None
+             self.key = None
++            gc.collect()
+             if self._accelerator == "cuda":
+                 torch.cuda.empty_cache()
+             elif self._accelerator == "mps":
+                 torch.mps.empty_cache()
+-            gc.collect()
+ 
+             self.value = model_loader()
+             self.key = key
