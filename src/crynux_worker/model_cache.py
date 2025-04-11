@@ -35,11 +35,11 @@ class ModelCache(object):
         if self.key is None or self.key != key:
             self.value = None
             self.key = None
+            gc.collect()
             if self._accelerator == "cuda":
                 torch.cuda.empty_cache()
             elif self._accelerator == "mps":
                 torch.mps.empty_cache()
-            gc.collect()
 
             self.value = model_loader()
             self.key = key
