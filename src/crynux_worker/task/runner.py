@@ -13,6 +13,7 @@ from crynux_worker.model_cache import ModelCache
 
 _logger = logging.getLogger(__name__)
 
+
 class TaskRunner(ABC):
     @abstractmethod
     def download_model(
@@ -109,7 +110,7 @@ class HFTaskRunner(TaskRunner):
     ):
         if task_type == TaskType.SD:
             from sd_task.task_args.inference_task import InferenceTaskArgs
-            from sd_task.task_runner import run_inference_task
+            from sd_task.task_runner.inference_task import run_inference_task
 
             args = InferenceTaskArgs.model_validate_json(task_args)
             imgs = run_inference_task(args, model_cache=model_cache, config=sd_config)
@@ -128,7 +129,7 @@ class HFTaskRunner(TaskRunner):
                 json.dump(resp, f)
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
-            from sd_task.task_runner import run_finetune_lora_task
+            from sd_task.task_runner.finetune_task import run_finetune_lora_task
 
             args = FinetuneLoraTaskArgs.model_validate_json(task_args)
             run_finetune_lora_task(args, output_dir=output_dir, config=sd_config)
@@ -144,7 +145,9 @@ class MockTaskRunner(TaskRunner):
         sd_config: SDConfig,
         gpt_config: GPTConfig,
     ):
-        _logger.info(f"Successfully download {task_type} {model_type} model: {model_name}")
+        _logger.info(
+            f"Successfully download {task_type} {model_type} model: {model_name}"
+        )
 
     def inference(
         self,
@@ -162,8 +165,7 @@ class MockTaskRunner(TaskRunner):
             with open(os.path.join(output_dir, "0.png"), mode="wb") as f:
                 f.write(content)
         elif task_type == TaskType.LLM:
-            resp = """
-            {
+            resp = {
                 "model": "gpt2",
                 "choices": [
                     {
@@ -176,12 +178,16 @@ class MockTaskRunner(TaskRunner):
                         "index": 0,
                     }
                 ],
-                "usage": {"prompt_tokens": 11, "completion_tokens": 30, "total_tokens": 41},
-            }"""
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 30,
+                    "total_tokens": 41,
+                },
+            }
             with open(
                 os.path.join(output_dir, "0.json"), mode="w", encoding="utf-8"
             ) as f:
-                f.write(resp)
+                json.dump(resp, f)
         elif task_type == TaskType.SD_FT_LORA:
             os.mkdir(os.path.join(output_dir, "validation"))
             os.mkdir(os.path.join(output_dir, "checkpoint"))
