@@ -2,7 +2,9 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Literal
+import shutil
+import tempfile
+from typing import Dict, Literal
 
 from gpt_task.config import Config as GPTConfig
 from sd_task.config import Config as SDConfig
@@ -10,8 +12,8 @@ from sd_task.config import Config as SDConfig
 from crynux_worker.model import TaskType
 from crynux_worker.model_cache import ModelCache
 
-
 _logger = logging.getLogger(__name__)
+
 
 class TaskRunner(ABC):
     @abstractmethod
@@ -61,10 +63,8 @@ class HFTaskRunner(TaskRunner):
             from diffusers import ControlNetModel
             from diffusers.utils import SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME
             from sd_task.download_model import (
-                check_and_download_hf_model,
-                check_and_download_hf_pipeline,
-                check_and_download_model_by_name,
-            )
+                check_and_download_hf_model, check_and_download_hf_pipeline,
+                check_and_download_model_by_name)
 
             if model_type == "base":
                 check_and_download_hf_pipeline(
@@ -109,7 +109,7 @@ class HFTaskRunner(TaskRunner):
     ):
         if task_type == TaskType.SD:
             from sd_task.task_args.inference_task import InferenceTaskArgs
-            from sd_task.task_runner import run_inference_task
+            from sd_task.task_runner.inference_task import run_inference_task
 
             args = InferenceTaskArgs.model_validate_json(task_args)
             imgs = run_inference_task(args, model_cache=model_cache, config=sd_config)
@@ -128,7 +128,8 @@ class HFTaskRunner(TaskRunner):
                 json.dump(resp, f)
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
-            from sd_task.task_runner import run_finetune_lora_task
+            from sd_task.task_runner.finetune_task import \
+                run_finetune_lora_task
 
             args = FinetuneLoraTaskArgs.model_validate_json(task_args)
             run_finetune_lora_task(args, output_dir=output_dir, config=sd_config)
@@ -144,7 +145,9 @@ class MockTaskRunner(TaskRunner):
         sd_config: SDConfig,
         gpt_config: GPTConfig,
     ):
-        _logger.info(f"Successfully download {task_type} {model_type} model: {model_name}")
+        _logger.info(
+            f"Successfully download {task_type} {model_type} model: {model_name}"
+        )
 
     def inference(
         self,
@@ -162,8 +165,7 @@ class MockTaskRunner(TaskRunner):
             with open(os.path.join(output_dir, "0.png"), mode="wb") as f:
                 f.write(content)
         elif task_type == TaskType.LLM:
-            resp = """
-            {
+            resp = {
                 "model": "gpt2",
                 "choices": [
                     {
@@ -176,12 +178,57 @@ class MockTaskRunner(TaskRunner):
                         "index": 0,
                     }
                 ],
-                "usage": {"prompt_tokens": 11, "completion_tokens": 30, "total_tokens": 41},
-            }"""
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 30,
+                    "total_tokens": 41,
+                },
+            }
             with open(
                 os.path.join(output_dir, "0.json"), mode="w", encoding="utf-8"
             ) as f:
-                f.write(resp)
+                json.dump(resp, f)
         elif task_type == TaskType.SD_FT_LORA:
-            os.mkdir(os.path.join(output_dir, "validation"))
-            os.mkdir(os.path.join(output_dir, "checkpoint"))
+            from sd_task.task_args import FinetuneLoraTaskArgs
+            args = FinetuneLoraTaskArgs.model_validate_json(task_args)
+            if args.checkpoint is not None:
+                assert os.path.exists(args.checkpoint)
+                assert os.path.isdir(args.checkpoint)
+            validation_dir = os.path.join(output_dir, "validation")
+            checkpoint_dir = os.path.join(output_dir, "checkpoint")
+            os.makedirs(validation_dir, exist_ok=True)
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            with open(os.path.join(validation_dir, "0.png"), mode="wb") as f:
+                content = bytes.fromhex(
+                    "89504e470d0a1a0a0000000d4948445200000008000000080800000000e164e1570000000c49444154789c6360a00e0000004800012eb83c7e0000000049454e44ae426082"
+                )
+                f.write(content)
+
+            global_step = 0
+            global_epoch = 0
+            finish = False
+            if args.checkpoint is not None:
+                if os.path.exists(os.path.join(args.checkpoint, "global_step.txt")):
+                    with open(os.path.join(args.checkpoint, "global_step.txt"), mode="r", encoding="utf-8") as f:
+                        global_step = int(f.read().strip())
+                if os.path.exists(os.path.join(args.checkpoint, "global_epoch.txt")):
+                    with open(os.path.join(args.checkpoint, "global_epoch.txt"), mode="r", encoding="utf-8") as f:
+                        global_epoch = int(f.read().strip())
+            if args.train_args.max_train_steps is not None and args.train_args.num_train_steps is not None and args.train_args.max_train_steps > 0:
+                global_step += args.train_args.num_train_steps
+                with open(os.path.join(checkpoint_dir, "global_step.txt"), mode="w", encoding="utf-8") as f:
+                    f.write(str(global_step))
+                if global_step >= args.train_args.max_train_steps:
+                    finish = True
+            elif args.train_args.max_train_epochs > 0 and args.train_args.num_train_epochs > 0:
+                global_epoch += args.train_args.num_train_epochs
+                with open(os.path.join(checkpoint_dir, "global_epoch.txt"), mode="w", encoding="utf-8") as f:
+                    f.write(str(global_epoch))
+                if global_epoch >= args.train_args.max_train_epochs:
+                    finish = True  
+            else:
+                raise ValueError("max_train_steps or max_train_epochs must be set")
+
+            if finish:
+                with open(os.path.join(checkpoint_dir, "FINISH"), mode="w", encoding="utf-8") as f:
+                    f.write("")
