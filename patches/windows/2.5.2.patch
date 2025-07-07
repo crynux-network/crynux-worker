@@ -1,15 +1,15 @@
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/crynux_worker/__init__.py new_worker/venv/lib/python3.10/site-packages/crynux_worker/__init__.py
---- worker/venv/lib/python3.10/site-packages/crynux_worker/__init__.py	2025-07-07 18:26:49.379332037 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/crynux_worker/__init__.py	2025-07-07 18:24:48.471817199 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/__init__.py new_crynux_worker_process/_internal/crynux_worker/__init__.py
+--- crynux_worker_process/_internal/crynux_worker/__init__.py	2025-07-07 18:26:49.379332037 +0800
++++ new_crynux_worker_process/_internal/crynux_worker/__init__.py	2025-07-07 18:24:48.471817199 +0800
 @@ -1,4 +1,4 @@
 -__version__ = "2.5.1"
 +__version__ = "2.5.2"
  
  def version():
      return __version__
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/crynux_worker/task/runner.py new_worker/venv/lib/python3.10/site-packages/crynux_worker/task/runner.py
---- worker/venv/lib/python3.10/site-packages/crynux_worker/task/runner.py	2025-07-07 18:26:49.383554328 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/crynux_worker/task/runner.py	2025-07-07 18:24:48.475986758 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/crynux_worker/task/runner.py new_crynux_worker_process/_internal/crynux_worker/task/runner.py
+--- crynux_worker_process/_internal/crynux_worker/task/runner.py	2025-07-07 18:26:49.383554328 +0800
++++ new_crynux_worker_process/_internal/crynux_worker/task/runner.py	2025-07-07 18:24:48.475986758 +0800
 @@ -2,7 +2,9 @@
  import logging
  import os
@@ -148,18 +148,18 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
 +            if finish:
 +                with open(os.path.join(checkpoint_dir, "FINISH"), mode="w", encoding="utf-8") as f:
 +                    f.write("")
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/__init__.py new_worker/venv/lib/python3.10/site-packages/sd_task/__init__.py
---- worker/venv/lib/python3.10/site-packages/sd_task/__init__.py	2025-07-07 18:26:32.179630200 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/sd_task/__init__.py	2025-07-07 18:23:05.923403457 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/sd_task/__init__.py new_crynux_worker_process/_internal/sd_task/__init__.py
+--- crynux_worker_process/_internal/sd_task/__init__.py	2025-07-07 18:26:32.179630200 +0800
++++ new_crynux_worker_process/_internal/sd_task/__init__.py	2025-07-07 18:23:05.923403457 +0800
 @@ -1,4 +1,4 @@
 -__version__ = "2.5.0"
 +__version__ = "2.6.1"
  
  def version():
      return __version__
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/task_args/finetune_task/task_args.py new_worker/venv/lib/python3.10/site-packages/sd_task/task_args/finetune_task/task_args.py
---- worker/venv/lib/python3.10/site-packages/sd_task/task_args/finetune_task/task_args.py	2025-07-07 18:26:32.179630200 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/sd_task/task_args/finetune_task/task_args.py	2025-07-07 18:23:05.927568483 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/sd_task/task_args/finetune_task/task_args.py new_crynux_worker_process/_internal/sd_task/task_args/finetune_task/task_args.py
+--- crynux_worker_process/_internal/sd_task/task_args/finetune_task/task_args.py	2025-07-07 18:26:32.179630200 +0800
++++ new_crynux_worker_process/_internal/sd_task/task_args/finetune_task/task_args.py	2025-07-07 18:23:05.927568483 +0800
 @@ -1,7 +1,7 @@
  from typing import Annotated, Literal, List
  
@@ -179,9 +179,9 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
      config_name: str | None = None
      image_column: str = "image"
      caption_column: str = "text"
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/download_url_dataset.py new_worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/download_url_dataset.py
---- worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/download_url_dataset.py	1970-01-01 08:00:00.000000000 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/download_url_dataset.py	2025-07-07 18:23:05.931733509 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/sd_task/task_runner/finetune_task/download_url_dataset.py new_crynux_worker_process/_internal/sd_task/task_runner/finetune_task/download_url_dataset.py
+--- crynux_worker_process/_internal/sd_task/task_runner/finetune_task/download_url_dataset.py	1970-01-01 08:00:00.000000000 +0800
++++ new_crynux_worker_process/_internal/sd_task/task_runner/finetune_task/download_url_dataset.py	2025-07-07 18:23:05.931733509 +0800
 @@ -0,0 +1,377 @@
 +import requests
 +import os
@@ -560,9 +560,9 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
 +    
 +    # Not a compressed file, return the original file path
 +    return file_path
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/finetune_lora.py new_worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/finetune_lora.py
---- worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/finetune_lora.py	2025-07-07 18:26:32.183799130 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/sd_task/task_runner/finetune_task/finetune_lora.py	2025-07-07 18:23:05.931733509 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/sd_task/task_runner/finetune_task/finetune_lora.py new_crynux_worker_process/_internal/sd_task/task_runner/finetune_task/finetune_lora.py
+--- crynux_worker_process/_internal/sd_task/task_runner/finetune_task/finetune_lora.py	2025-07-07 18:26:32.183799130 +0800
++++ new_crynux_worker_process/_internal/sd_task/task_runner/finetune_task/finetune_lora.py	2025-07-07 18:23:05.931733509 +0800
 @@ -1,46 +1,43 @@
 +import hashlib
 +import json
@@ -679,9 +679,9 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
  
      column_names = dataset["train"].column_names
      image_column = args.dataset.image_column
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/task_runner/inference_task/inference_task.py new_worker/venv/lib/python3.10/site-packages/sd_task/task_runner/inference_task/inference_task.py
---- worker/venv/lib/python3.10/site-packages/sd_task/task_runner/inference_task/inference_task.py	2025-07-07 18:26:32.183799130 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/sd_task/task_runner/inference_task/inference_task.py	2025-07-07 18:23:05.931733509 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/sd_task/task_runner/inference_task/inference_task.py new_crynux_worker_process/_internal/sd_task/task_runner/inference_task/inference_task.py
+--- crynux_worker_process/_internal/sd_task/task_runner/inference_task/inference_task.py	2025-07-07 18:26:32.183799130 +0800
++++ new_crynux_worker_process/_internal/sd_task/task_runner/inference_task/inference_task.py	2025-07-07 18:23:05.931733509 +0800
 @@ -212,11 +212,6 @@
      if config is None:
          config = get_config()
@@ -694,9 +694,9 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
      if config.deterministic and utils.get_accelerator() == "cuda":
          # Use deterministic algorithms for reproducibility
          os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/utils.py new_worker/venv/lib/python3.10/site-packages/sd_task/utils.py
---- worker/venv/lib/python3.10/site-packages/sd_task/utils.py	2025-07-07 18:26:32.179630200 +0800
-+++ new_worker/venv/lib/python3.10/site-packages/sd_task/utils.py	2025-07-07 18:23:05.923403457 +0800
+diff -urN -x __pycache__ -x '*dist-info' crynux_worker_process/_internal/sd_task/utils.py new_crynux_worker_process/_internal/sd_task/utils.py
+--- crynux_worker_process/_internal/sd_task/utils.py	2025-07-07 18:26:32.179630200 +0800
++++ new_crynux_worker_process/_internal/sd_task/utils.py	2025-07-07 18:23:05.923403457 +0800
 @@ -7,7 +7,6 @@
  
  
