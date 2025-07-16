@@ -7,3 +7,20 @@ diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-package
  
  def version():
      return __version__
+diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/__init__.py new_worker/venv/lib/python3.10/site-packages/sd_task/__init__.py
+--- worker/venv/lib/python3.10/site-packages/sd_task/__init__.py	2025-07-16 16:39:49.024301082 +0800
++++ new_worker/venv/lib/python3.10/site-packages/sd_task/__init__.py	2025-07-16 16:40:41.263274873 +0800
+@@ -1,4 +1,4 @@
+-__version__ = "2.6.1"
++__version__ = "3.0.0"
+ 
+ def version():
+     return __version__
+diff -urN -x __pycache__ -x '*dist-info' worker/venv/lib/python3.10/site-packages/sd_task/task_args/version.py new_worker/venv/lib/python3.10/site-packages/sd_task/task_args/version.py
+--- worker/venv/lib/python3.10/site-packages/sd_task/task_args/version.py	2025-07-16 16:39:49.028229574 +0800
++++ new_worker/venv/lib/python3.10/site-packages/sd_task/task_args/version.py	2025-07-16 16:40:41.271063446 +0800
+@@ -6,3 +6,4 @@
+     V2_0_0 = "2.0.0"
+     V2_1_0 = "2.1.0"
+     V2_5_0 = "2.5.0"
++    v3_0_0 = "3.0.0"
