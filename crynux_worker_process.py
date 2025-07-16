@@ -222,7 +222,7 @@ if __name__ == "__main__":
 
     patch_url = os.environ.get(
         "CRYNUX_WORKER_PATCH_URL",
-        "https://raw.githubusercontent.com/crynux-ai/crynux-worker/main",
+        "https://raw.githubusercontent.com/crynux-network/crynux-worker/main",
     )
 
     platform_name = _get_platform()
