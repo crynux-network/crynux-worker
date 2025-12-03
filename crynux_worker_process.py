@@ -16,6 +16,7 @@ import requests
 import whatthepatch
 
 from crynux_worker.config import get_config
+from crynux_worker.log import init as log_init
 
 _logger = logging.getLogger(__name__)
 
@@ -69,14 +70,14 @@ def apply_patch(patch_content: str):
 def _worker():
     from tenacity import Retrying, before_sleep_log, stop_never, wait_fixed
 
-    from crynux_worker import log
+    from crynux_worker.log import init as log_init
     from crynux_worker.config import get_config
     from crynux_worker.worker import worker
 
     try:
         config = get_config()
 
-        log.init(
+        log_init(
             config.log.dir, log_level=config.log.level, log_filename=config.log.filename
         )
 
@@ -153,7 +154,7 @@ def _get_patch_contents(
     with requests_proxy_session(proxy) as proxies:
         try:
             version_patches: Dict[str, str] = {}
-            resp = requests.get(f"{patch_url}/patches.txt", proxies=proxies)
+            resp = requests.get(f"{patch_url}/patches.txt", proxies=proxies, timeout=10)
             resp.raise_for_status()
 
             versions = resp.text.strip().split()
@@ -171,6 +172,7 @@ def _get_patch_contents(
                     sub_resp = requests.get(
                         f"{patch_url}/patches/{platform_name}/{version}.patch",
                         proxies=proxies,
+                        timeout=10,
                     )
                     sub_resp.raise_for_status()
 
@@ -217,6 +219,11 @@ if __name__ == "__main__":
     with open(cfg.pid_file, mode="w", encoding="utf-8") as f:
         pid = os.getpid()
         f.write(str(pid))
+
+    log_init(
+        cfg.log.dir, log_level=cfg.log.level, log_filename=cfg.log.filename, root=True
+    )
+    _logger.info("worker process start")
 
     proxy = cfg.proxy
 
@@ -273,6 +280,10 @@ if __name__ == "__main__":
             sleep_time += 1
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        _logger.exception(e)
+        _logger.error("worker unexpected error")
+        raise e
     finally:
         if _is_worker_process_alive():
             worker_process.kill()
