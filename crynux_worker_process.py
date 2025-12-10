@@ -242,42 +242,37 @@ if __name__ == "__main__":
             return worker_process.is_alive()
         except ValueError:
             return False
+        
+    def _check_and_apply_patch():
+        try:
+            version = get_version(ctx)
+            version_patches = _get_patch_contents(
+                patch_url, version, platform_name, proxy=proxy
+            )
+            if len(version_patches) > 0:
+                for remote_version, patch_content in version_patches.items():
+                    with DelayedKeyboardInterrupt():
+                        apply_patch(patch_content)
+                    _logger.info(f"update worker to version {remote_version}")
+                return True
+            return False
+        except Exception as e:
+            _logger.exception(e)
+            _logger.error("check and apply patch error")
+            return False
 
     try:
-        version = get_version(ctx)
-        version_patches = _get_patch_contents(
-            patch_url, version, platform_name, proxy=proxy
-        )
-        if len(version_patches) > 0:
-            for remote_version, patch_content in version_patches.items():
-                with DelayedKeyboardInterrupt():
-                    apply_patch(patch_content)
-                _logger.info(f"update worker to version {remote_version}")
-
         worker_process.start()
 
-        sleep_time = 0
         while _is_worker_process_alive():
-            if sleep_time == 60:
-                sleep_time = 0
-                version = get_version(ctx)
-                version_patches = _get_patch_contents(
-                    patch_url, version, platform_name, proxy=proxy
-                )
-                if len(version_patches) > 0:
-                    for remote_version, patch_content in version_patches.items():
-                        with DelayedKeyboardInterrupt():
-                            apply_patch(patch_content)
-                        _logger.info(f"update worker to version {remote_version}")
+            if _check_and_apply_patch():
+                worker_process.terminate()
+                worker_process.join()
+                worker_process.close()
+                worker_process = ctx.Process(target=_worker)
+                worker_process.start()
 
-                    worker_process.terminate()
-                    worker_process.join()
-                    worker_process.close()
-                    worker_process = ctx.Process(target=_worker)
-                    worker_process.start()
-
-            time.sleep(1)
-            sleep_time += 1
+            time.sleep(60)
     except KeyboardInterrupt:
         pass
     except Exception as e:
