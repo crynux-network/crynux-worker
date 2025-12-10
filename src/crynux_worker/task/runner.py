@@ -160,7 +160,7 @@ class MockTaskRunner(TaskRunner):
     ):
         if task_type == TaskType.SD:
             content = bytes.fromhex(
-                "89504e470d0a1a0a0000000d4948445200000008000000080800000000e164e1570000000c49444154789c6360a00e0000004800012eb83c7e0000000049454e44ae426082"
+                "89504e470d0a1a0a0000000d49484452000000030000000308000000007343ea630000001449444154789c63f8cff09f89e13f0303c37f06001c0003ff136fd2d30000000049454e44ae426082"
             )
             with open(os.path.join(output_dir, "0.png"), mode="wb") as f:
                 f.write(content)
@@ -200,7 +200,7 @@ class MockTaskRunner(TaskRunner):
             os.makedirs(checkpoint_dir, exist_ok=True)
             with open(os.path.join(validation_dir, "0.png"), mode="wb") as f:
                 content = bytes.fromhex(
-                    "89504e470d0a1a0a0000000d4948445200000008000000080800000000e164e1570000000c49444154789c6360a00e0000004800012eb83c7e0000000049454e44ae426082"
+                    "89504e470d0a1a0a0000000d49484452000000030000000308000000007343ea630000001449444154789c63f8cff09f89e13f0303c37f06001c0003ff136fd2d30000000049454e44ae426082"
                 )
                 f.write(content)
 
