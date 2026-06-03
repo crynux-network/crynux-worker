@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crynux-worker"
-authors = [{ name = "iwehf", email = "henry.lee@crynux.ai" }]
+authors = [{ name = "iwehf", email = "henry.lee@crynux.io" }]
 description = "Task worker for crynux node"
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = ["Programming Language :: Python :: 3"]
-version = "3.0.1"
+version = "3.1.0"
 dependencies = [
     "sd_task",
     "gpt_task",
