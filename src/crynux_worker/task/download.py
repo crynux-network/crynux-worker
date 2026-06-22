@@ -43,6 +43,8 @@ def download_worker(
                     datefmt="%Y-%m-%d %H:%M:%S",
                     style="{",
                     level=logging.INFO,
+                    stream=f,
+                    force=True,
                 )
 
                 stop = False

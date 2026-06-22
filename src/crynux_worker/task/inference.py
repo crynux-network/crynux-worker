@@ -69,6 +69,8 @@ def inference_worker(
                     datefmt="%Y-%m-%d %H:%M:%S",
                     style="{",
                     level=logging.INFO,
+                    stream=f,
+                    force=True,
                 )
                 model_cache = ModelCache()
 
