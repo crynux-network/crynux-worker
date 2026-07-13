@@ -1,4 +1,3 @@
-import torch
 import gc
 import platform
 from typing import Callable, Any
@@ -37,8 +36,12 @@ class ModelCache(object):
             self.key = None
             gc.collect()
             if self._accelerator == "cuda":
+                import torch.cuda
+
                 torch.cuda.empty_cache()
             elif self._accelerator == "mps":
+                import torch.mps
+
                 torch.mps.empty_cache()
 
             self.value = model_loader()
