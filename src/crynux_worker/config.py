@@ -44,8 +44,13 @@ class LogConfig(BaseModel):
     filename: str = "crynux-worker.log"
 
 
+WorkerRole = Literal["inference", "download"]
+
+
 class Config(BaseSettings):
     log: LogConfig
+
+    worker_role: WorkerRole
 
     node_url: str
     data_dir: DataDirConfig = DataDirConfig(
@@ -141,6 +146,7 @@ def generate_sd_config(config: Config) -> sd_config.Config:
             vae=vae,
         ),
         proxy=proxy,
+        local_files_only=config.worker_role == "inference",
     )
 
 
@@ -170,4 +176,5 @@ def generate_gpt_config(config: Config) -> gpt_config.Config:
         ),
         preloaded_models=gpt_config.PreloadedModelsConfig(base=base),
         proxy=proxy,
+        local_files_only=config.worker_role == "inference",
     )

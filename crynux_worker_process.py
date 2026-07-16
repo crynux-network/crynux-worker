@@ -261,11 +261,16 @@ if __name__ == "__main__":
             _logger.error("check and apply patch error")
             return False
 
+    # Only the inference worker supervisor runs the patch update loop, so two
+    # worker processes never patch the same script_dir concurrently. The
+    # download worker picks up patched code when the node restarts it.
+    check_patch = cfg.worker_role == "inference"
+
     try:
         worker_process.start()
 
         while _is_worker_process_alive():
-            if _check_and_apply_patch():
+            if check_patch and _check_and_apply_patch():
                 worker_process.terminate()
                 worker_process.join()
                 worker_process.close()

@@ -20,7 +20,6 @@ from crynux_worker.model import (
 )
 from crynux_worker.model_cache import ModelCache
 
-from .model_mutex import ModelMutex
 from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
@@ -53,7 +52,6 @@ def _inference_one_task(
 def inference_worker(
     task_input_queue: Queue[InferenceTaskInput],
     result_queue: Queue[TaskResult],
-    model_mutex: ModelMutex,
     task_runner_cls: Type[TaskRunner],
     config: Config,
     sd_config: SDConfig,
@@ -88,33 +86,31 @@ def inference_worker(
                         task_input: InferenceTaskInput = task_input_queue.get(
                             timeout=0.1
                         )
-                        model_ids = [model.to_model_id() for model in task_input.models]
-                        with model_mutex.lock_models(model_ids):
-                            try:
-                                _logger.info(
-                                    f"Inference task {task_input.task_id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                                )
-                                _inference_one_task(
-                                    task_runner=task_runner,
-                                    task_input=task_input,
-                                    model_cache=model_cache,
-                                    sd_config=sd_config,
-                                    gpt_config=gpt_config,
-                                    output_dir=task_input.output_dir,
-                                )
-                                res = TaskResult(
-                                    task_name="inference",
-                                    task_id_commitment=task_input.task_id,
-                                    result=SuccessResult(status="success"),
-                                )
-                            except Exception as e:
-                                _logger.exception(e)
-                                tb = traceback.format_exc()
-                                res = TaskResult(
-                                    task_name="inference",
-                                    task_id_commitment=task_input.task_id,
-                                    result=ErrorResult(status="error", traceback=tb),
-                                )
+                        try:
+                            _logger.info(
+                                f"Inference task {task_input.task_id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                            _inference_one_task(
+                                task_runner=task_runner,
+                                task_input=task_input,
+                                model_cache=model_cache,
+                                sd_config=sd_config,
+                                gpt_config=gpt_config,
+                                output_dir=task_input.output_dir,
+                            )
+                            res = TaskResult(
+                                task_name="inference",
+                                task_id_commitment=task_input.task_id,
+                                result=SuccessResult(status="success"),
+                            )
+                        except Exception as e:
+                            _logger.exception(e)
+                            tb = traceback.format_exc()
+                            res = TaskResult(
+                                task_name="inference",
+                                task_id_commitment=task_input.task_id,
+                                result=ErrorResult(status="error", traceback=tb),
+                            )
 
                         result_queue.put(res)
                     except Empty:

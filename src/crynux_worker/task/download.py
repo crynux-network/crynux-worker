@@ -18,7 +18,6 @@ from crynux_worker.model import (
     TaskResult,
 )
 
-from .model_mutex import ModelMutex
 from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
@@ -27,7 +26,6 @@ _logger = logging.getLogger(__name__)
 def download_worker(
     task_input_queue: Queue[DownloadTaskInput],
     result_queue: Queue[TaskResult],
-    model_mutex: ModelMutex,
     task_runner_cls: Type[TaskRunner],
     config: Config,
     sd_config: SDConfig,
@@ -59,32 +57,30 @@ def download_worker(
                 while not stop:
                     try:
                         task_input = task_input_queue.get(timeout=0.1)
-                        model_id = task_input.model.to_model_id()
-                        with model_mutex.lock_model(model_id):
-                            try:
-                                _logger.info(
-                                    f"Download task {task_input.task_id} model {task_input.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                                )
-                                task_runner.download_model(
-                                    task_type=task_input.task_type,
-                                    model_type=task_input.model.type,
-                                    model_name=task_input.model.id,
-                                    variant=task_input.model.variant,
-                                    sd_config=sd_config,
-                                    gpt_config=gpt_config,
-                                )
-                                res = TaskResult(
-                                    task_name="download",
-                                    task_id_commitment=task_input.task_id,
-                                    result=SuccessResult(status="success"),
-                                )
-                            except Exception:
-                                tb = traceback.format_exc()
-                                res = TaskResult(
-                                    task_name="download",
-                                    task_id_commitment=task_input.task_id,
-                                    result=ErrorResult(status="error", traceback=tb),
-                                )
+                        try:
+                            _logger.info(
+                                f"Download task {task_input.task_id} model {task_input.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                            task_runner.download_model(
+                                task_type=task_input.task_type,
+                                model_type=task_input.model.type,
+                                model_name=task_input.model.id,
+                                variant=task_input.model.variant,
+                                sd_config=sd_config,
+                                gpt_config=gpt_config,
+                            )
+                            res = TaskResult(
+                                task_name="download",
+                                task_id_commitment=task_input.task_id,
+                                result=SuccessResult(status="success"),
+                            )
+                        except Exception:
+                            tb = traceback.format_exc()
+                            res = TaskResult(
+                                task_name="download",
+                                task_id_commitment=task_input.task_id,
+                                result=ErrorResult(status="error", traceback=tb),
+                            )
                         result_queue.put(res)
 
                     except Empty:

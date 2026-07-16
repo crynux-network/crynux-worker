@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import signal
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import requests
 import websockets.sync.client
@@ -129,12 +129,19 @@ def worker(config: Config | None = None):
 
     signal.signal(signal.SIGTERM, _signal_handle)
 
+    def _registration():
+        # Only the inference worker registers on the relay, so a node with
+        # two worker processes is counted once
+        if config.worker_role == "inference":
+            return register_worker(_version, config.worker_url, config.proxy)
+        return nullcontext()
+
     while not _stop:
         try:
             with websockets.sync.client.connect(
                 config.node_url
-            ) as websocket, register_worker(_version, config.worker_url, config.proxy):
-                version_msg = {"version": _version}
+            ) as websocket, _registration():
+                version_msg = {"version": _version, "role": config.worker_role}
                 websocket.send(json.dumps(version_msg))
                 raw_init_msg = websocket.recv()
                 assert isinstance(raw_init_msg, str)
