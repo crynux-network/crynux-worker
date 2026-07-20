@@ -117,11 +117,22 @@ class HFTaskRunner(TaskRunner):
                 filename = os.path.join(output_dir, f"{i}.png")
                 img.save(filename)
         elif task_type == TaskType.LLM:
-            from gpt_task.inference import run_task as run_gpt_task
             from gpt_task.models import GPTTaskArgs
 
             args = GPTTaskArgs.model_validate_json(task_args)
-            resp = run_gpt_task(args, model_cache=model_cache, config=gpt_config)
+            if os.environ.get("GPT_EXECUTOR") == "tensor_parallel":
+                # TP tasks cache shards inside the rank processes; the
+                # worker-level model cache serves classic-fallback tasks
+                # and is evicted by run_task_tp before a TP task runs.
+                from gpt_task.inference.tp import run_task_tp
+
+                resp = run_task_tp(args, model_cache=model_cache, config=gpt_config)
+            else:
+                from gpt_task.inference import run_task as run_gpt_task
+
+                resp = run_gpt_task(
+                    args, model_cache=model_cache, config=gpt_config
+                )
             with open(
                 os.path.join(output_dir, "0.json"), mode="w", encoding="utf-8"
             ) as f:

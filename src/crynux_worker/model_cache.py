@@ -32,18 +32,20 @@ class ModelCache(object):
 
     def load(self, key: str, model_loader: Callable[[], Any]):
         if self.key is None or self.key != key:
-            self.value = None
-            self.key = None
-            gc.collect()
-            if self._accelerator == "cuda":
-                import torch.cuda
-
-                torch.cuda.empty_cache()
-            elif self._accelerator == "mps":
-                import torch.mps
-
-                torch.mps.empty_cache()
-
+            self.clear()
             self.value = model_loader()
             self.key = key
         return self.value
+
+    def clear(self):
+        self.value = None
+        self.key = None
+        gc.collect()
+        if self._accelerator == "cuda":
+            import torch.cuda
+
+            torch.cuda.empty_cache()
+        elif self._accelerator == "mps":
+            import torch.mps
+
+            torch.mps.empty_cache()
