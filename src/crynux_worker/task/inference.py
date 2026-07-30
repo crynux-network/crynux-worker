@@ -12,6 +12,10 @@ from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
+from crynux_worker.gpu_residency import (
+    prepare_gpu_for_task,
+    release_gpu_residency,
+)
 from crynux_worker.model import (
     ErrorResult,
     InferenceTaskInput,
@@ -36,6 +40,7 @@ def _inference_one_task(
 ):
 
     try:
+        prepare_gpu_for_task(task_input.task_type, model_cache)
         results = task_runner.inference(
             task_type=task_input.task_type,
             task_args=task_input.task_args,
@@ -58,6 +63,7 @@ def inference_worker(
     sd_config: SDConfig,
     gpt_config: GPTConfig,
 ):
+    model_cache = None
     try:
         task_runner = task_runner_cls()
         inference_log_file = os.path.join(config.log.dir, "crynux_worker_inference.log")
@@ -122,6 +128,8 @@ def inference_worker(
                         result_queue.put(res)
                     except Empty:
                         pass
+                release_gpu_residency(model_cache)
                 _logger.info("inference process exit normally")
     except KeyboardInterrupt:
-        pass
+        if model_cache is not None:
+            release_gpu_residency(model_cache)
