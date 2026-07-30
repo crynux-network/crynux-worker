@@ -20,6 +20,7 @@ from crynux_worker.model import (
 )
 from crynux_worker.model_cache import ModelCache
 
+from .gpu_count import executed_gpu_count_for_inference
 from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
@@ -109,7 +110,13 @@ def inference_worker(
                             res = TaskResult(
                                 task_name="inference",
                                 task_id_commitment=task_input.task_id,
-                                result=ErrorResult(status="error", traceback=tb),
+                                result=ErrorResult(
+                                    status="error",
+                                    traceback=tb,
+                                    gpu_count=executed_gpu_count_for_inference(
+                                        task_input.task_type
+                                    ),
+                                ),
                             )
 
                         result_queue.put(res)

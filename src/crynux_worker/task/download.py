@@ -18,6 +18,7 @@ from crynux_worker.model import (
     TaskResult,
 )
 
+from .gpu_count import visible_gpu_count
 from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
@@ -79,7 +80,11 @@ def download_worker(
                             res = TaskResult(
                                 task_name="download",
                                 task_id_commitment=task_input.task_id,
-                                result=ErrorResult(status="error", traceback=tb),
+                                result=ErrorResult(
+                                    status="error",
+                                    traceback=tb,
+                                    gpu_count=visible_gpu_count(),
+                                ),
                             )
                         result_queue.put(res)
 
