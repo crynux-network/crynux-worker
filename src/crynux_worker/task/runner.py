@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 import shutil
 import tempfile
 from typing import Dict, Literal
@@ -13,6 +14,11 @@ from crynux_worker.model import TaskType
 from crynux_worker.model_cache import ModelCache
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class InferenceExecutionResult:
+    execution_dtype: str | None
 
 
 class TaskRunner(ABC):
@@ -116,7 +122,9 @@ class HFTaskRunner(TaskRunner):
             for i, img in enumerate(imgs):
                 filename = os.path.join(output_dir, f"{i}.png")
                 img.save(filename)
+            return imgs
         elif task_type == TaskType.LLM:
+            import gpt_task.inference as gpt_inference
             from gpt_task.models import GPTTaskArgs
 
             args = GPTTaskArgs.model_validate_json(task_args)
@@ -137,6 +145,13 @@ class HFTaskRunner(TaskRunner):
                 os.path.join(output_dir, "0.json"), mode="w", encoding="utf-8"
             ) as f:
                 json.dump(resp, f)
+            get_execution_dtype = getattr(
+                gpt_inference, "get_execution_dtype", None
+            )
+            execution_dtype = (
+                get_execution_dtype() if get_execution_dtype is not None else None
+            )
+            return InferenceExecutionResult(execution_dtype=execution_dtype)
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
             from sd_task.task_runner.finetune_task import \

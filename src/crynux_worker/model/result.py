@@ -1,10 +1,11 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
 class SuccessResult(BaseModel):
     status: Literal["success"]
+    execution_dtype: Optional[str] = None
 
 
 class ErrorResult(BaseModel):

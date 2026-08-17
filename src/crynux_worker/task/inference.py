@@ -41,7 +41,7 @@ def _inference_one_task(
 
     try:
         prepare_gpu_for_task(task_input.task_type, model_cache)
-        results = task_runner.inference(
+        runner_result = task_runner.inference(
             task_type=task_input.task_type,
             task_args=task_input.task_args,
             model_cache=model_cache,
@@ -50,7 +50,7 @@ def _inference_one_task(
             output_dir=output_dir,
         )
 
-        return results
+        return getattr(runner_result, "execution_dtype", None)
     except ValidationError as e:
         raise ValueError("Task args invalid") from e
 
@@ -97,7 +97,7 @@ def inference_worker(
                             _logger.info(
                                 f"Inference task {task_input.task_id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                             )
-                            _inference_one_task(
+                            execution_dtype = _inference_one_task(
                                 task_runner=task_runner,
                                 task_input=task_input,
                                 model_cache=model_cache,
@@ -108,7 +108,10 @@ def inference_worker(
                             res = TaskResult(
                                 task_name="inference",
                                 task_id_commitment=task_input.task_id,
-                                result=SuccessResult(status="success"),
+                                result=SuccessResult(
+                                    status="success",
+                                    execution_dtype=execution_dtype,
+                                ),
                             )
                         except Exception as e:
                             _logger.exception(e)

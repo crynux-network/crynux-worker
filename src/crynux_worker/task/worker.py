@@ -77,7 +77,7 @@ class TaskWorker(object):
         while self._status == "running":
             try:
                 res = result_queue.get(timeout=0.1)
-                ws.send(res.model_dump_json())
+                ws.send(res.model_dump_json(exclude_none=True))
             except Empty:
                 pass
             except Exception as e:
