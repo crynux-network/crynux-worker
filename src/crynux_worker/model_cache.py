@@ -37,6 +37,10 @@ class ModelCache(object):
             self.key = key
         return self.value
 
+    def delete(self, key: str):
+        if self.key == key:
+            self.clear()
+
     def clear(self):
         self.value = None
         self.key = None

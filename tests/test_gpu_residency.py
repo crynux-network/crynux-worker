@@ -59,7 +59,12 @@ class GPUResidencyTests(unittest.TestCase):
         model_cache = MagicMock()
         task_runner = MagicMock()
         task_runner.inference.side_effect = lambda **kwargs: order.append("run")
-        task_input = SimpleNamespace(task_type=TaskType.SD, task_args="{}")
+        task_input = SimpleNamespace(
+            task_type=TaskType.SD,
+            task_args="{}",
+            execution_model_files=[],
+            requested_model_cache_hash=None,
+        )
 
         with patch(
             "crynux_worker.task.inference.prepare_gpu_for_task",

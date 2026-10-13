@@ -1,7 +1,9 @@
 from enum import IntEnum
-from typing import Literal, List
+from typing import Literal, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .model_file import ModelFileEntry
 
 
 class TaskType(IntEnum):
@@ -37,19 +39,38 @@ class ModelConfig(BaseModel):
 
 
 class DownloadTaskInput(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     task_name: Literal["download"]
     task_type: TaskType
     task_id: str
-    model: ModelConfig
+    # Task-scoped auxiliary downloads carry `model`; model file downloads carry
+    # `model_files`.
+    model: Optional[ModelConfig] = None
+    model_files: List[ModelFileEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _require_one_target(self) -> "DownloadTaskInput":
+        if (self.model is None) == (len(self.model_files) == 0):
+            raise ValueError(
+                "A download task requires exactly one of model and model_files"
+            )
+        return self
 
 
 class InferenceTaskInput(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     task_name: Literal["inference"]
     task_type: TaskType
     task_id: str
     models: List[ModelConfig]
     task_args: str
     output_dir: str
+    # Exact model files frozen by the Relay for this execution
+    execution_model_files: List[ModelFileEntry] = Field(default_factory=list)
+    # Relay-assigned identity of the model the task requests in memory
+    requested_model_cache_hash: Optional[str] = None
 
 
 class TaskInput(BaseModel):

@@ -24,6 +24,44 @@ from .runner import TaskRunner
 _logger = logging.getLogger(__name__)
 
 
+def _download_one_task(
+    task_runner: TaskRunner,
+    task_input: DownloadTaskInput,
+    sd_config: SDConfig,
+    gpt_config: GPTConfig,
+) -> SuccessResult:
+    start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if task_input.model is not None:
+        _logger.info(
+            f"Download task {task_input.task_id} model {task_input.model.id} starts at {start_time}"
+        )
+        task_runner.download_model(
+            task_type=task_input.task_type,
+            model_type=task_input.model.type,
+            model_name=task_input.model.id,
+            variant=task_input.model.variant,
+            sd_config=sd_config,
+            gpt_config=gpt_config,
+        )
+        return SuccessResult(status="success")
+
+    _logger.info(
+        f"Download task {task_input.task_id} model files "
+        f"{[model_file.repository for model_file in task_input.model_files]} "
+        f"starts at {start_time}"
+    )
+    model_files = [
+        task_runner.download_model_file(
+            task_type=task_input.task_type,
+            model_file=model_file,
+            sd_config=sd_config,
+            gpt_config=gpt_config,
+        )
+        for model_file in task_input.model_files
+    ]
+    return SuccessResult(status="success", model_files=model_files)
+
+
 def download_worker(
     task_input_queue: Queue[DownloadTaskInput],
     result_queue: Queue[TaskResult],
@@ -59,21 +97,15 @@ def download_worker(
                     try:
                         task_input = task_input_queue.get(timeout=0.1)
                         try:
-                            _logger.info(
-                                f"Download task {task_input.task_id} model {task_input.model.id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                            )
-                            task_runner.download_model(
-                                task_type=task_input.task_type,
-                                model_type=task_input.model.type,
-                                model_name=task_input.model.id,
-                                variant=task_input.model.variant,
-                                sd_config=sd_config,
-                                gpt_config=gpt_config,
-                            )
                             res = TaskResult(
                                 task_name="download",
                                 task_id_commitment=task_input.task_id,
-                                result=SuccessResult(status="success"),
+                                result=_download_one_task(
+                                    task_runner,
+                                    task_input,
+                                    sd_config,
+                                    gpt_config,
+                                ),
                             )
                         except Exception:
                             tb = traceback.format_exc()

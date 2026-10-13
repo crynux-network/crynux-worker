@@ -21,6 +21,7 @@ from crynux_worker.model import (
     InferenceTaskInput,
     SuccessResult,
     TaskResult,
+    TaskType,
 )
 from crynux_worker.model_cache import ModelCache
 
@@ -28,6 +29,9 @@ from .gpu_count import executed_gpu_count_for_inference
 from .runner import TaskRunner
 
 _logger = logging.getLogger(__name__)
+
+# Task types whose model is held in the worker model cache
+_MODEL_CACHE_TASK_TYPES = (TaskType.SD, TaskType.LLM)
 
 
 def _inference_one_task(
@@ -37,20 +41,31 @@ def _inference_one_task(
     sd_config: SDConfig,
     gpt_config: GPTConfig,
     output_dir: str,
-):
-
+) -> SuccessResult:
     try:
         prepare_gpu_for_task(task_input.task_type, model_cache)
         runner_result = task_runner.inference(
             task_type=task_input.task_type,
             task_args=task_input.task_args,
+            execution_model_files=task_input.execution_model_files,
             model_cache=model_cache,
             sd_config=sd_config,
             gpt_config=gpt_config,
             output_dir=output_dir,
         )
 
-        return getattr(runner_result, "execution_dtype", None)
+        # A successful run means the requested model is held in memory, either
+        # loaded now or reused from the cache.
+        model_cache_hash = (
+            task_input.requested_model_cache_hash
+            if task_input.task_type in _MODEL_CACHE_TASK_TYPES
+            else None
+        )
+        return SuccessResult(
+            status="success",
+            execution_dtype=getattr(runner_result, "execution_dtype", None),
+            model_cache_hash=model_cache_hash,
+        )
     except ValidationError as e:
         raise ValueError("Task args invalid") from e
 
@@ -97,7 +112,7 @@ def inference_worker(
                             _logger.info(
                                 f"Inference task {task_input.task_id} starts at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                             )
-                            execution_dtype = _inference_one_task(
+                            success_result = _inference_one_task(
                                 task_runner=task_runner,
                                 task_input=task_input,
                                 model_cache=model_cache,
@@ -108,10 +123,7 @@ def inference_worker(
                             res = TaskResult(
                                 task_name="inference",
                                 task_id_commitment=task_input.task_id,
-                                result=SuccessResult(
-                                    status="success",
-                                    execution_dtype=execution_dtype,
-                                ),
+                                result=success_result,
                             )
                         except Exception as e:
                             _logger.exception(e)

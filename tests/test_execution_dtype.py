@@ -7,10 +7,25 @@ from queue import Queue
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from crynux_worker.model import SuccessResult, TaskResult, TaskType
+from crynux_worker.model import ModelFileEntry, SuccessResult, TaskResult, TaskType
 from crynux_worker.task.inference import _inference_one_task
 from crynux_worker.task.runner import HFTaskRunner
 from crynux_worker.task.worker import TaskWorker
+
+SHA = "a" * 40
+LLM_TASK_ARGS = json.dumps(
+    {"model": "org/model", "messages": [{"role": "user", "content": "hi"}]}
+)
+LLM_MODEL_FILES = [ModelFileEntry(repository="org/model", revision=SHA)]
+
+
+def make_task_input(task_type=TaskType.LLM):
+    return SimpleNamespace(
+        task_type=task_type,
+        task_args="{}",
+        execution_model_files=[],
+        requested_model_cache_hash=None,
+    )
 
 
 class DtypeList(list):
@@ -54,10 +69,10 @@ class ExecutionDtypeTests(unittest.TestCase):
     def test_inference_coordinator_reads_runner_dtype(self):
         task_runner = MagicMock()
         task_runner.inference.return_value = DtypeDict({}, "float16")
-        task_input = SimpleNamespace(task_type=TaskType.LLM, task_args="{}")
+        task_input = make_task_input()
 
         with patch("crynux_worker.task.inference.prepare_gpu_for_task"):
-            execution_dtype = _inference_one_task(
+            result = _inference_one_task(
                 task_runner=task_runner,
                 task_input=task_input,
                 model_cache=MagicMock(),
@@ -66,15 +81,15 @@ class ExecutionDtypeTests(unittest.TestCase):
                 output_dir="output",
             )
 
-        self.assertEqual(execution_dtype, "float16")
+        self.assertEqual(result.execution_dtype, "float16")
 
     def test_inference_coordinator_accepts_legacy_runner_result(self):
         task_runner = MagicMock()
         task_runner.inference.return_value = {}
-        task_input = SimpleNamespace(task_type=TaskType.LLM, task_args="{}")
+        task_input = make_task_input()
 
         with patch("crynux_worker.task.inference.prepare_gpu_for_task"):
-            execution_dtype = _inference_one_task(
+            result = _inference_one_task(
                 task_runner=task_runner,
                 task_input=task_input,
                 model_cache=MagicMock(),
@@ -83,31 +98,37 @@ class ExecutionDtypeTests(unittest.TestCase):
                 output_dir="output",
             )
 
-        self.assertIsNone(execution_dtype)
+        self.assertIsNone(result.execution_dtype)
 
     def test_sd_runner_preserves_dtype_result(self):
         image = MagicMock()
         runner_result = DtypeList([image], "float16")
         runner = HFTaskRunner()
-        inference_task_args = MagicMock()
-        task_args_module = ModuleType("sd_task.task_args.inference_task")
-        task_args_module.InferenceTaskArgs = inference_task_args
-        runner_module = ModuleType("sd_task.task_runner.inference_task")
-        runner_module.run_inference_task = MagicMock(return_value=runner_result)
+        image_task_args = MagicMock()
+        task_args_module = ModuleType("sd_task.task_args.image_task")
+        task_args_module.ImageTaskArgs = image_task_args
+        applied_args = MagicMock()
+        runner_module = ModuleType("sd_task.task_runner.image_task")
+        runner_module.run_image_task = MagicMock(return_value=runner_result)
+        runner_module.apply_execution_model_files = MagicMock(
+            return_value=applied_args
+        )
+        model_files = [ModelFileEntry(repository="org/base", revision=SHA)]
 
         with (
             tempfile.TemporaryDirectory() as output_dir,
             patch.dict(
                 sys.modules,
                 {
-                    "sd_task.task_args.inference_task": task_args_module,
-                    "sd_task.task_runner.inference_task": runner_module,
+                    "sd_task.task_args.image_task": task_args_module,
+                    "sd_task.task_runner.image_task": runner_module,
                 },
             ),
         ):
             result = runner.inference(
                 task_type=TaskType.SD,
                 task_args="{}",
+                execution_model_files=model_files,
                 model_cache=MagicMock(),
                 sd_config=MagicMock(),
                 gpt_config=MagicMock(),
@@ -115,7 +136,13 @@ class ExecutionDtypeTests(unittest.TestCase):
             )
 
             image.save.assert_called_once_with(os.path.join(output_dir, "0.png"))
-            inference_task_args.model_validate_json.assert_called_once_with("{}")
+            image_task_args.model_validate_json.assert_called_once_with("{}")
+            runner_module.apply_execution_model_files.assert_called_once_with(
+                image_task_args.model_validate_json.return_value, model_files
+            )
+            self.assertIs(
+                runner_module.run_image_task.call_args.args[0], applied_args
+            )
 
         self.assertIs(result, runner_result)
 
@@ -126,8 +153,9 @@ class ExecutionDtypeTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as output_dir,
             patch.dict(os.environ, {}, clear=True),
-            patch("gpt_task.models.GPTTaskArgs.model_validate_json") as validate,
-            patch("gpt_task.inference.run_task", return_value=runner_response),
+            patch(
+                "gpt_task.inference.run_task", return_value=runner_response
+            ) as run_task,
             patch(
                 "gpt_task.inference.get_execution_dtype",
                 return_value="bfloat16",
@@ -135,7 +163,8 @@ class ExecutionDtypeTests(unittest.TestCase):
         ):
             result = runner.inference(
                 task_type=TaskType.LLM,
-                task_args="{}",
+                task_args=LLM_TASK_ARGS,
+                execution_model_files=LLM_MODEL_FILES,
                 model_cache=MagicMock(),
                 sd_config=MagicMock(),
                 gpt_config=MagicMock(),
@@ -146,7 +175,7 @@ class ExecutionDtypeTests(unittest.TestCase):
                 os.path.join(output_dir, "0.json"), mode="r", encoding="utf-8"
             ) as f:
                 self.assertEqual(json.load(f), {"choices": []})
-            validate.assert_called_once_with("{}")
+            self.assertEqual(run_task.call_args.args[0].revision, SHA)
 
         self.assertEqual(result.execution_dtype, "bfloat16")
 
@@ -157,7 +186,6 @@ class ExecutionDtypeTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as output_dir,
             patch.dict(os.environ, {"GPT_EXECUTOR": "tensor_parallel"}, clear=True),
-            patch("gpt_task.models.GPTTaskArgs.model_validate_json"),
             patch(
                 "gpt_task.inference.tp.run_task_tp",
                 return_value=runner_response,
@@ -169,7 +197,8 @@ class ExecutionDtypeTests(unittest.TestCase):
         ):
             result = runner.inference(
                 task_type=TaskType.LLM,
-                task_args="{}",
+                task_args=LLM_TASK_ARGS,
+                execution_model_files=LLM_MODEL_FILES,
                 model_cache=MagicMock(),
                 sd_config=MagicMock(),
                 gpt_config=MagicMock(),
@@ -178,6 +207,7 @@ class ExecutionDtypeTests(unittest.TestCase):
 
         self.assertEqual(result.execution_dtype, "float32")
         run_task.assert_called_once()
+        self.assertEqual(run_task.call_args.args[0].revision, SHA)
 
     def test_gpt_runner_accepts_legacy_api_without_dtype_getter(self):
         runner = HFTaskRunner()
@@ -185,13 +215,13 @@ class ExecutionDtypeTests(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as output_dir,
             patch.dict(os.environ, {}, clear=True),
-            patch("gpt_task.models.GPTTaskArgs.model_validate_json"),
             patch("gpt_task.inference.run_task", return_value={"choices": []}),
             patch("gpt_task.inference.get_execution_dtype", new=None),
         ):
             result = runner.inference(
                 task_type=TaskType.LLM,
-                task_args="{}",
+                task_args=LLM_TASK_ARGS,
+                execution_model_files=LLM_MODEL_FILES,
                 model_cache=MagicMock(),
                 sd_config=MagicMock(),
                 gpt_config=MagicMock(),

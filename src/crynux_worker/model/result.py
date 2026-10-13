@@ -1,11 +1,20 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from .model_file import ModelFileEntry
 
 
 class SuccessResult(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     status: Literal["success"]
     execution_dtype: Optional[str] = None
+    # Download results list the exact entry of every downloaded model file
+    model_files: Optional[List[ModelFileEntry]] = None
+    # Inference results return the requested model cache hash as the identity
+    # of the model now held in memory
+    model_cache_hash: Optional[str] = None
 
 
 class ErrorResult(BaseModel):
