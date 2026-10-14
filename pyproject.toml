@@ -14,7 +14,7 @@ dependencies = [
     "sd_task",
     "gpt_task",
     "PyYAML",
-    "pydantic",
+    "pydantic==2.12.5",
     "pydantic-settings",
     "websockets",
     "tenacity",
