@@ -329,11 +329,15 @@ class DownloadFileTests(unittest.TestCase):
             )
 
     def test_image_pipeline_downloads_resolved_revision(self):
-        modules, download_module, _ = self._sd_modules()
+        modules, download_module, component_module = self._sd_modules()
         with (
             patch.dict(sys.modules, modules),
             patch(
                 "huggingface_hub.model_info", return_value=SimpleNamespace(sha=SHA)
+            ),
+            patch(
+                "huggingface_hub.list_repo_files",
+                return_value=["model_index.json", "vae/config.json"],
             ),
         ):
             result = HFTaskRunner().download_model_file(
@@ -347,6 +351,7 @@ class DownloadFileTests(unittest.TestCase):
         self.assertEqual(call.args[0], "org/base")
         self.assertEqual(call.kwargs["revision"], SHA)
         self.assertEqual(result, entry("org/base", SHA, "diffusers"))
+        component_module.download_component_file.assert_not_called()
 
     def test_gguf_component_downloads_exact_revision(self):
         modules, _, component_module = self._sd_modules()
@@ -364,13 +369,34 @@ class DownloadFileTests(unittest.TestCase):
         self.assertEqual(source.format_kwargs, {"filename": "model.gguf"})
         self.assertEqual(result, file_entry)
 
-    def test_image_rejects_unsupported_format(self):
+    def test_diffusers_component_downloads_without_model_index(self):
+        modules, download_module, component_module = self._sd_modules()
+        file_entry = entry("org/vae", SHA, "diffusers", {})
+        with (
+            patch.dict(sys.modules, modules),
+            patch(
+                "huggingface_hub.list_repo_files",
+                return_value=["config.json", "diffusion_pytorch_model.safetensors"],
+            ),
+        ):
+            result = HFTaskRunner().download_model_file(
+                TaskType.SD, file_entry, MagicMock(), MagicMock()
+            )
+
+        download_module.check_and_download_hf_pipeline.assert_not_called()
+        source = component_module.download_component_file.call_args.args[0]
+        self.assertEqual(source.repo, "org/vae")
+        self.assertEqual(source.format, "diffusers")
+        self.assertEqual(source.revision, SHA)
+        self.assertEqual(result, file_entry)
+
+    def test_image_rejects_empty_format(self):
         modules, download_module, component_module = self._sd_modules()
         with patch.dict(sys.modules, modules):
             with self.assertRaises(ValueError):
                 HFTaskRunner().download_model_file(
                     TaskType.SD,
-                    entry("org/base", SHA, "other"),
+                    entry("org/base", SHA, ""),
                     MagicMock(),
                     MagicMock(),
                 )

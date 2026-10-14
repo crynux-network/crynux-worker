@@ -12,7 +12,6 @@ from sd_task.config import Config as SDConfig
 
 from crynux_worker.model import ModelFileEntry, TaskType
 from crynux_worker.model.model_file import (
-    GGUF_COMPONENT_FORMAT,
     IMAGE_BASE_MODEL_FORMAT,
     SOURCE_TYPE_HUGGINGFACE,
 )
@@ -40,6 +39,16 @@ def _resolve_revision(model_file: ModelFileEntry) -> str:
     if not sha:
         raise ValueError(f"No commit found for model {model_file.repository}")
     return sha
+
+
+def _repo_has_model_index(repository: str, revision: str) -> bool:
+    from huggingface_hub import list_repo_files
+
+    files = list_repo_files(repository, revision=revision)
+    return any(
+        name == "model_index.json" or name.endswith("/model_index.json")
+        for name in files
+    )
 
 
 class TaskRunner(ABC):
@@ -119,14 +128,17 @@ class HFTaskRunner(TaskRunner):
             hf_cache_dir = sd_config.data_dir.models.huggingface
             with requests_proxy_session(sd_config.proxy):
                 revision = _resolve_revision(model_file)
-            if model_file.format == IMAGE_BASE_MODEL_FORMAT:
+                is_pipeline = model_file.format == IMAGE_BASE_MODEL_FORMAT and (
+                    _repo_has_model_index(model_file.repository, revision)
+                )
+            if is_pipeline:
                 check_and_download_hf_pipeline(
                     model_file.repository,
                     revision=revision,
                     hf_model_cache_dir=hf_cache_dir,
                     proxy=sd_config.proxy,
                 )
-            elif model_file.format == GGUF_COMPONENT_FORMAT:
+            elif model_file.format:
                 download_component_file(
                     ComponentSource(
                         format=model_file.format,
