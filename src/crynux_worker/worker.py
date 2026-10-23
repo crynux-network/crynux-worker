@@ -139,7 +139,8 @@ def worker(config: Config | None = None):
     while not _stop:
         try:
             with websockets.sync.client.connect(
-                config.node_url
+                config.node_url,
+                max_size=None,
             ) as websocket, _registration():
                 version_msg = {"version": _version, "role": config.worker_role}
                 websocket.send(json.dumps(version_msg))
