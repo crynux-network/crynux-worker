@@ -78,7 +78,11 @@ def _worker():
         config = get_config()
 
         log_init(
-            config.log.dir, log_level=config.log.level, log_filename=config.log.filename
+            config.log.dir,
+            log_level=config.log.level,
+            max_bytes=config.log.max_bytes,
+            backup_count=config.log.backup_count,
+            log_filename=config.log.filename,
         )
 
         for attemp in Retrying(
@@ -221,7 +225,12 @@ if __name__ == "__main__":
         f.write(str(pid))
 
     log_init(
-        cfg.log.dir, log_level=cfg.log.level, log_filename=cfg.log.filename, root=True
+        cfg.log.dir,
+        log_level=cfg.log.level,
+        max_bytes=cfg.log.max_bytes,
+        backup_count=cfg.log.backup_count,
+        log_filename=cfg.log.filename,
+        root=True,
     )
     _logger.info("worker process start")
 

@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
+from crynux_worker.log import RotatingFileStream
 from crynux_worker.gpu_residency import (
     prepare_gpu_for_task,
     release_gpu_residency,
@@ -82,7 +83,11 @@ def inference_worker(
     try:
         task_runner = task_runner_cls()
         inference_log_file = os.path.join(config.log.dir, "crynux_worker_inference.log")
-        with open(inference_log_file, mode="a", encoding="utf-8") as f:
+        with RotatingFileStream(
+            inference_log_file,
+            max_bytes=config.log.max_bytes,
+            backup_count=config.log.backup_count,
+        ) as f:
             with redirect_stderr(f), redirect_stdout(f):
                 logging.basicConfig(
                     format="[{asctime}] [{levelname:<8}] {name}: {message}",

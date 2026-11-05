@@ -2,7 +2,7 @@ import os
 from typing import List, Tuple, Type, Literal
 
 from gpt_task import config as gpt_config
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import (BaseSettings, PydanticBaseSettingsSource,
                                SettingsConfigDict, YamlConfigSettingsSource)
 from sd_task import config as sd_config
@@ -42,6 +42,8 @@ class LogConfig(BaseModel):
     dir: str
     level: LogLevel
     filename: str = "crynux-worker.log"
+    max_bytes: int = Field(ge=1)
+    backup_count: int = Field(ge=1)
 
 
 WorkerRole = Literal["inference", "download"]

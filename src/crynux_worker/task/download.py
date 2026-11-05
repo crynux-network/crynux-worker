@@ -11,6 +11,7 @@ from gpt_task.config import Config as GPTConfig
 from sd_task.config import Config as SDConfig
 
 from crynux_worker.config import Config
+from crynux_worker.log import RotatingFileStream
 from crynux_worker.model import (
     DownloadTaskInput,
     ErrorResult,
@@ -73,7 +74,11 @@ def download_worker(
     task_runner = task_runner_cls()
     try:
         prefetch_log_file = os.path.join(config.log.dir, "crynux_worker_prefetch.log")
-        with open(prefetch_log_file, mode="a", encoding="utf-8") as f:
+        with RotatingFileStream(
+            prefetch_log_file,
+            max_bytes=config.log.max_bytes,
+            backup_count=config.log.backup_count,
+        ) as f:
             with redirect_stderr(f), redirect_stdout(f):
                 logging.basicConfig(
                     format="[{asctime}] [{levelname:<8}] {name}: {message}",
