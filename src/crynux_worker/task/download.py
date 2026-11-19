@@ -43,6 +43,8 @@ def _download_one_task(
             variant=task_input.model.variant,
             sd_config=sd_config,
             gpt_config=gpt_config,
+            revision=task_input.model.revision,
+            weight_file_name=task_input.model.weight_file_name,
         )
         return SuccessResult(status="success")
 

@@ -26,6 +26,7 @@ MOCK_REVISION = "0" * 40
 @dataclass(frozen=True)
 class InferenceExecutionResult:
     execution_dtype: str | None
+    score_hex: str | None = None
 
 
 def _resolve_revision(model_file: ModelFileEntry) -> str:
@@ -46,7 +47,9 @@ def _repo_has_model_index(repository: str, revision: str) -> bool:
 
     files = list_repo_files(repository, revision=revision)
     return any(
-        name == "model_index.json" or name.endswith("/model_index.json")
+        name in ("model_index.json", "modular_model_index.json")
+        or name.endswith("/model_index.json")
+        or name.endswith("/modular_model_index.json")
         for name in files
     )
 
@@ -61,6 +64,8 @@ class TaskRunner(ABC):
         variant: str | None,
         sd_config: SDConfig,
         gpt_config: GPTConfig,
+        revision: str | None = None,
+        weight_file_name: str = "",
     ): ...
 
     @abstractmethod
@@ -167,6 +172,8 @@ class HFTaskRunner(TaskRunner):
         variant: str | None,
         sd_config: SDConfig,
         gpt_config: GPTConfig,
+        revision: str | None = None,
+        weight_file_name: str = "",
     ):
         if task_type == TaskType.LLM:
             from gpt_task.prefetch import download_model
@@ -188,6 +195,7 @@ class HFTaskRunner(TaskRunner):
             if model_type == "base":
                 check_and_download_hf_pipeline(
                     model_name,
+                    revision=revision,
                     variant=variant,
                     hf_model_cache_dir=sd_config.data_dir.models.huggingface,
                     proxy=sd_config.proxy,
@@ -202,18 +210,20 @@ class HFTaskRunner(TaskRunner):
                     sd_config.data_dir.models.huggingface,
                     sd_config.proxy,
                     variant,
+                    revision=revision,
                 )
                 _logger.info(f"Successfully download sd controlnet model: {model_name}")
             elif model_type == "lora":
                 check_and_download_model_by_name(
                     model_name,
                     None,
-                    [],
-                    True,
+                    [weight_file_name] if weight_file_name else [],
+                    not bool(weight_file_name),
                     hf_model_cache_dir=sd_config.data_dir.models.huggingface,
                     external_model_cache_dir=sd_config.data_dir.models.external,
                     proxy=sd_config.proxy,
                     variant=variant,
+                    revision=revision,
                 )
                 _logger.info(f"Successfully download sd lora model: {model_name}")
 
@@ -272,6 +282,25 @@ class HFTaskRunner(TaskRunner):
                 get_execution_dtype() if get_execution_dtype is not None else None
             )
             return InferenceExecutionResult(execution_dtype=execution_dtype)
+        elif task_type == TaskType.VIDEO:
+            from sd_task.task_args.video_task import VideoTaskArgs
+            from sd_task.task_runner.video_task import (
+                apply_execution_model_files,
+                run_video_task,
+            )
+
+            args = VideoTaskArgs.model_validate_json(task_args)
+            args = apply_execution_model_files(args, execution_model_files)
+            video_res = run_video_task(
+                args,
+                output_dir=output_dir,
+                model_cache=model_cache,
+                config=sd_config,
+            )
+            return InferenceExecutionResult(
+                execution_dtype=video_res.execution_dtype,
+                score_hex=video_res.score_hex,
+            )
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
             from sd_task.task_runner.finetune_task import \
@@ -290,6 +319,8 @@ class MockTaskRunner(TaskRunner):
         variant: str | None,
         sd_config: SDConfig,
         gpt_config: GPTConfig,
+        revision: str | None = None,
+        weight_file_name: str = "",
     ):
         _logger.info(
             f"Successfully download {task_type} {model_type} model: {model_name}"
@@ -349,6 +380,13 @@ class MockTaskRunner(TaskRunner):
                 os.path.join(output_dir, "0.json"), mode="w", encoding="utf-8"
             ) as f:
                 json.dump(resp, f)
+        elif task_type == TaskType.VIDEO:
+            with open(os.path.join(output_dir, "0.mp4"), mode="wb") as f:
+                f.write(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
+            return InferenceExecutionResult(
+                execution_dtype="bfloat16",
+                score_hex="0x" + ("c097384b5a770de9" * 8),
+            )
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
             args = FinetuneLoraTaskArgs.model_validate_json(task_args)

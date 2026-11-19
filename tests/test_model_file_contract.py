@@ -25,7 +25,7 @@ SHA = "a" * 40
 OTHER_SHA = "b" * 40
 CACHE_HASH = "c" * 64
 LLM_TASK_ARGS = json.dumps(
-    {"model": "org/model", "messages": [{"role": "user", "content": "hi"}]}
+    {"version": "3.7.0", "model": "org/model", "messages": [{"role": "user", "content": "hi"}]}
 )
 
 
@@ -195,7 +195,7 @@ class InferenceCoordinatorTests(unittest.TestCase):
         return task_runner, model_files, result
 
     def test_echoes_requested_model_cache_hash(self):
-        for task_type in (TaskType.LLM, TaskType.SD):
+        for task_type in (TaskType.LLM, TaskType.SD, TaskType.VIDEO):
             with self.subTest(task_type=task_type):
                 _, _, result = self._run(task_type, CACHE_HASH)
 
@@ -403,6 +403,68 @@ class DownloadFileTests(unittest.TestCase):
 
         download_module.check_and_download_hf_pipeline.assert_not_called()
         component_module.download_component_file.assert_not_called()
+
+    def test_modular_video_pipeline_downloads_resolved_revision(self):
+        modules, download_module, component_module = self._sd_modules()
+        with (
+            patch.dict(sys.modules, modules),
+            patch(
+                "huggingface_hub.model_info", return_value=SimpleNamespace(sha=SHA)
+            ),
+            patch(
+                "huggingface_hub.list_repo_files",
+                return_value=["modular_model_index.json", "vae/config.json"],
+            ),
+        ):
+            result = HFTaskRunner().download_model_file(
+                TaskType.VIDEO,
+                entry("org/minimax-h3", model_format="diffusers"),
+                MagicMock(),
+                MagicMock(),
+            )
+
+        call = download_module.check_and_download_hf_pipeline.call_args
+        self.assertEqual(call.args[0], "org/minimax-h3")
+        self.assertEqual(call.kwargs["revision"], SHA)
+        self.assertEqual(result, entry("org/minimax-h3", SHA, "diffusers"))
+        component_module.download_component_file.assert_not_called()
+
+    def test_video_lora_model_id_roundtrip_and_download(self):
+        from crynux_worker.model.input import ModelConfig
+
+        cfg = ModelConfig.from_model_id(
+            "lora:lightx2v/wan2.2-lightning@deadbeef#Wan2.2_High.safetensors"
+        )
+        self.assertEqual(cfg.id, "lightx2v/wan2.2-lightning")
+        self.assertEqual(cfg.revision, "deadbeef")
+        self.assertEqual(cfg.weight_file_name, "Wan2.2_High.safetensors")
+        self.assertEqual(
+            cfg.to_model_id(),
+            "lora:lightx2v/wan2.2-lightning@deadbeef#Wan2.2_High.safetensors",
+        )
+
+        url_cfg = ModelConfig.from_model_id("lora:https://civitai.com/api/download/models/123?type=Model")
+        self.assertEqual(url_cfg.id, "https://civitai.com/api/download/models/123?type=Model")
+        self.assertIsNone(url_cfg.revision)
+        self.assertEqual(url_cfg.weight_file_name, "")
+
+        task_runner = MagicMock()
+        task_input = DownloadTaskInput(
+            task_name="download",
+            task_type=TaskType.VIDEO,
+            task_id="task:aux:0",
+            model=cfg,
+        )
+        _download_one_task(task_runner, task_input, MagicMock(), MagicMock())
+        task_runner.download_model.assert_called_once()
+        self.assertEqual(
+            task_runner.download_model.call_args.kwargs["revision"],
+            "deadbeef",
+        )
+        self.assertEqual(
+            task_runner.download_model.call_args.kwargs["weight_file_name"],
+            "Wan2.2_High.safetensors",
+        )
 
     def test_mock_runner_reports_concrete_revision(self):
         runner = MockTaskRunner()

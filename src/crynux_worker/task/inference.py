@@ -32,7 +32,7 @@ from .runner import TaskRunner
 _logger = logging.getLogger(__name__)
 
 # Task types whose model is held in the worker model cache
-_MODEL_CACHE_TASK_TYPES = (TaskType.SD, TaskType.LLM)
+_MODEL_CACHE_TASK_TYPES = (TaskType.SD, TaskType.LLM, TaskType.VIDEO)
 
 
 def _inference_one_task(
@@ -66,6 +66,7 @@ def _inference_one_task(
             status="success",
             execution_dtype=getattr(runner_result, "execution_dtype", None),
             model_cache_hash=model_cache_hash,
+            score=getattr(runner_result, "score_hex", None),
         )
     except ValidationError as e:
         raise ValueError("Task args invalid") from e

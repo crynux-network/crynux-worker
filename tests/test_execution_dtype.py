@@ -14,7 +14,7 @@ from crynux_worker.task.worker import TaskWorker
 
 SHA = "a" * 40
 LLM_TASK_ARGS = json.dumps(
-    {"model": "org/model", "messages": [{"role": "user", "content": "hi"}]}
+    {"version": "3.7.0", "model": "org/model", "messages": [{"role": "user", "content": "hi"}]}
 )
 LLM_MODEL_FILES = [ModelFileEntry(repository="org/model", revision=SHA)]
 
@@ -145,6 +145,53 @@ class ExecutionDtypeTests(unittest.TestCase):
             )
 
         self.assertIs(result, runner_result)
+
+    def test_video_runner_returns_dtype_and_score_hex(self):
+        runner = HFTaskRunner()
+        video_task_args = MagicMock()
+        task_args_module = ModuleType("sd_task.task_args.video_task")
+        task_args_module.VideoTaskArgs = video_task_args
+        applied_args = MagicMock()
+        fake_video_res = SimpleNamespace(
+            execution_dtype="bfloat16",
+            score_hex="0x" + ("c097384b5a770de9" * 8),
+        )
+        runner_module = ModuleType("sd_task.task_runner.video_task")
+        runner_module.run_video_task = MagicMock(return_value=fake_video_res)
+        runner_module.apply_execution_model_files = MagicMock(
+            return_value=applied_args
+        )
+        model_files = [ModelFileEntry(repository="org/wan", revision=SHA, format="diffusers")]
+
+        with (
+            tempfile.TemporaryDirectory() as output_dir,
+            patch.dict(
+                sys.modules,
+                {
+                    "sd_task.task_args.video_task": task_args_module,
+                    "sd_task.task_runner.video_task": runner_module,
+                },
+            ),
+            patch("crynux_worker.task.inference.prepare_gpu_for_task"),
+        ):
+            task_input = SimpleNamespace(
+                task_type=TaskType.VIDEO,
+                task_args="{}",
+                execution_model_files=model_files,
+                requested_model_cache_hash="f" * 64,
+            )
+            success = _inference_one_task(
+                task_runner=runner,
+                task_input=task_input,
+                model_cache=MagicMock(),
+                sd_config=MagicMock(),
+                gpt_config=MagicMock(),
+                output_dir=output_dir,
+            )
+
+        self.assertEqual(success.execution_dtype, "bfloat16")
+        self.assertEqual(success.model_cache_hash, "f" * 64)
+        self.assertEqual(success.score, "0x" + ("c097384b5a770de9" * 8))
 
     def test_gpt_classic_runner_preserves_dtype_result(self):
         runner_response = {"choices": []}
