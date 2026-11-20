@@ -66,7 +66,6 @@ def _inference_one_task(
             status="success",
             execution_dtype=getattr(runner_result, "execution_dtype", None),
             model_cache_hash=model_cache_hash,
-            score=getattr(runner_result, "score_hex", None),
         )
     except ValidationError as e:
         raise ValueError("Task args invalid") from e

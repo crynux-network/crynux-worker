@@ -15,8 +15,6 @@ class SuccessResult(BaseModel):
     # Inference results return the requested model cache hash as the identity
     # of the model now held in memory
     model_cache_hash: Optional[str] = None
-    # Video inference results return the hex VSS score computed from 0.mp4
-    score: Optional[str] = None
 
 
 class ErrorResult(BaseModel):

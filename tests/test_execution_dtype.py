@@ -146,7 +146,7 @@ class ExecutionDtypeTests(unittest.TestCase):
 
         self.assertIs(result, runner_result)
 
-    def test_video_runner_returns_dtype_and_score_hex(self):
+    def test_video_runner_returns_dtype(self):
         runner = HFTaskRunner()
         video_task_args = MagicMock()
         task_args_module = ModuleType("sd_task.task_args.video_task")
@@ -154,7 +154,6 @@ class ExecutionDtypeTests(unittest.TestCase):
         applied_args = MagicMock()
         fake_video_res = SimpleNamespace(
             execution_dtype="bfloat16",
-            score_hex="0x" + ("c097384b5a770de9" * 8),
         )
         runner_module = ModuleType("sd_task.task_runner.video_task")
         runner_module.run_video_task = MagicMock(return_value=fake_video_res)
@@ -191,7 +190,6 @@ class ExecutionDtypeTests(unittest.TestCase):
 
         self.assertEqual(success.execution_dtype, "bfloat16")
         self.assertEqual(success.model_cache_hash, "f" * 64)
-        self.assertEqual(success.score, "0x" + ("c097384b5a770de9" * 8))
 
     def test_gpt_classic_runner_preserves_dtype_result(self):
         runner_response = {"choices": []}

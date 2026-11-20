@@ -26,7 +26,6 @@ MOCK_REVISION = "0" * 40
 @dataclass(frozen=True)
 class InferenceExecutionResult:
     execution_dtype: str | None
-    score_hex: str | None = None
 
 
 def _resolve_revision(model_file: ModelFileEntry) -> str:
@@ -299,7 +298,6 @@ class HFTaskRunner(TaskRunner):
             )
             return InferenceExecutionResult(
                 execution_dtype=video_res.execution_dtype,
-                score_hex=video_res.score_hex,
             )
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
@@ -381,12 +379,28 @@ class MockTaskRunner(TaskRunner):
             ) as f:
                 json.dump(resp, f)
         elif task_type == TaskType.VIDEO:
-            with open(os.path.join(output_dir, "0.mp4"), mode="wb") as f:
-                f.write(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
-            return InferenceExecutionResult(
-                execution_dtype="bfloat16",
-                score_hex="0x" + ("c097384b5a770de9" * 8),
+            import numpy as np
+            from sd_task.task_runner.video_task.encode import encode_canonical_mp4
+
+            parsed_args = json.loads(task_args) if task_args else {}
+            task_cfg = parsed_args.get("task_config") or {}
+            num_frames = int(task_cfg.get("num_frames") or 81)
+            width = int(task_cfg.get("width") or 64)
+            height = int(task_cfg.get("height") or 64)
+            fps = float(task_cfg.get("fps") or 16.0)
+            yy = np.arange(height, dtype=np.uint16)[None, :, None]
+            xx = np.arange(width, dtype=np.uint16)[None, None, :]
+            tt = np.arange(num_frames, dtype=np.uint16)[:, None, None]
+            frames = np.empty((num_frames, height, width, 3), dtype=np.uint8)
+            frames[..., 0] = (xx * 3 + yy * 2 + tt * 13 + 32) % 256
+            frames[..., 1] = (xx * 2 + yy * 5 + tt * 7 + 96) % 256
+            frames[..., 2] = (xx * 5 + yy * 3 + tt * 19 + 160) % 256
+            encode_canonical_mp4(
+                frames,
+                fps=fps,
+                output_path=os.path.join(output_dir, "0.mp4"),
             )
+            return InferenceExecutionResult(execution_dtype="bfloat16")
         elif task_type == TaskType.SD_FT_LORA:
             from sd_task.task_args import FinetuneLoraTaskArgs
             args = FinetuneLoraTaskArgs.model_validate_json(task_args)
